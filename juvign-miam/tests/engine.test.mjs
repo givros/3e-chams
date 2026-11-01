@@ -1,0 +1,15 @@
+import {test} from 'node:test';
+import assert from 'node:assert/strict';
+import {course,solution} from '../src/course.js';
+import {evaluate} from '../src/engine.js';
+const tests=course.flatMap(m=>m.tests||[]);
+test('complete solution passes every cumulative mission',()=>assert.equal(evaluate(solution,tests),true));
+test('earlier rules are checked after later changes',()=>assert.throws(()=>evaluate(solution.replace('return quantity + 1','return quantity + 2'),tests),/addQuantity/));
+test('quantity cannot become negative',()=>assert.throws(()=>evaluate(solution.replace('if (quantity === 0) return 0; ',''),tests),/removeQuantity/));
+test('delivery threshold includes exactly twenty euros',()=>assert.throws(()=>evaluate(solution.replace('amount >= freeDeliveryAt','amount > freeDeliveryAt'),tests),/deliveryFee/));
+test('discount requires the correct code and sufficient subtotal',()=>assert.throws(()=>evaluate(solution.replace('code === promoCode && amount >= promoMinimum','code === promoCode'),tests),/discount/));
+test('equivalent implementations are accepted',()=>assert.equal(evaluate(solution.replace('return quantity + 1','return 1 + quantity').replace('return first + second + third','return third + (second + first)'),tests),true));
+test('nonfinite values are rejected',()=>assert.throws(()=>evaluate(solution.replace('return amount + fee - reduction','return NaN'),tests),/grandTotal/));
+test('preview calls student functions',()=>assert.equal(evaluate(solution,[],{method:'grandTotal',args:[23.3,0,3]}),20.3));
+test('missing preview methods return null',()=>assert.equal(evaluate('const restaurantName="Test";',[],{method:'discount',args:['MIAM',20]}),null));
+test('twelve steps fit within two hours',()=>{assert.equal(course.length,12);assert.ok(course.reduce((n,m)=>n+m.time,0)<=120);});

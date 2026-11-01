@@ -3,6 +3,7 @@ dist/
 tmp/
 .playwright-cli/
 output/playwright/
+**/output/playwright/
 .env
 .env.*
 !.env.example

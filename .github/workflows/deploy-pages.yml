@@ -26,6 +26,22 @@ jobs:
           node-version: '24'
       - name: Test workshop
         run: npm test
+      - name: Test no-code studio
+        run: npm --prefix juvign-miam test
+      - name: Check robotics workshop
+        env:
+          NODE_OPTIONS: --dns-result-order=ipv4first
+        run: |
+          node mbot2-lab/server.mjs > "$RUNNER_TEMP/mbot2-server.log" 2>&1 &
+          server_pid=$!
+          trap 'kill "$server_pid" 2>/dev/null || true' EXIT
+          for attempt in {1..30}; do
+            if curl --fail --silent http://127.0.0.1:5182/ > /dev/null; then
+              break
+            fi
+            sleep 1
+          done
+          node mbot2-lab/check.mjs
       - name: Build static site
         run: npm run build
       - name: Upload site
