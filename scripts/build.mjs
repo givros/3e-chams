@@ -18,7 +18,7 @@ await mkdir(output, { recursive: true });
 await mkdir(path.join(output, 'code-quest'), { recursive: true });
 await Promise.all(workshopEntries.map(entry => cp(path.join(root, entry), path.join(output, 'code-quest', entry), { recursive: true })));
 
-const studioEntries = ['index.html', 'studio.css', 'src', 'assets'];
+const studioEntries = ['index.html', 'view.html', 'studio.css', 'src', 'assets'];
 await Promise.all(studioEntries.map(entry => cp(path.join(root, 'juvign-miam', entry), path.join(output, entry), { recursive: true })));
 
 await mkdir(path.join(output, 'mbot2-lab'), { recursive: true });
