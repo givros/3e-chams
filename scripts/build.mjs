@@ -24,4 +24,5 @@ await Promise.all(studioEntries.map(entry => cp(path.join(root, 'juvign-miam', e
 await mkdir(path.join(output, 'mbot2-lab'), { recursive: true });
 await Promise.all(['index.html', 'app.js', 'style.css'].map(entry => cp(path.join(root, 'mbot2-lab', entry), path.join(output, 'mbot2-lab', entry))));
 await writeFile(path.join(output, '.nojekyll'), '');
+await writeFile(path.join(output, 'version.json'), JSON.stringify({ revision: process.env.GITHUB_SHA || 'local', builtAt: new Date().toISOString() }));
 console.log('Studio built in dist/; other workshops in code-quest/ and mbot2-lab/.');

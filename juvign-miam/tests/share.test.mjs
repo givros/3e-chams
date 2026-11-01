@@ -24,3 +24,11 @@ test('shared snapshots retain Unicode, actions and custom images independently o
 test('broken and excessive share links are rejected',async()=>{
  await assert.rejects(decodeProject('invalid'));await assert.rejects(decodeProject('a'.repeat(4000001)));
 });
+test('catalogue and basket templates link in both directions regardless of insertion order',()=>{
+ for(const order of [['catalog','basket'],['basket','catalog']]){
+  const p=blankProject();for(const id of order)addScreenTemplate(p,id);
+  const catalog=p.screens.find(s=>s.nodes.some(n=>n.type==='products')),basket=p.screens.find(s=>s.nodes.some(n=>n.type==='cart'));
+  assert.ok(catalog.nodes.some(n=>n.events.click.some(a=>a.type==='navigate'&&a.screen===basket.id)));
+  assert.ok(basket.nodes.some(n=>n.events.click.some(a=>a.type==='navigate'&&a.screen===catalog.id)));
+ }
+});

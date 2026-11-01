@@ -11,7 +11,8 @@ export function variable(p,name,type='text',initial=''){
  if(['__proto__','constructor','prototype'].includes(unique))unique='data_'+unique;
  const base=unique;let n=2;while(p.variables.some(v=>v.name===unique))unique=base+n++;
  const labels={input:'Texte saisi',number:'Nombre',enabled:'Interrupteur',items:'Ma liste',products:'Mes produits',cart:'Mon panier'};
- const v={name:unique,label:(labels[name]||name)+(unique!==base?' '+unique.slice(base.length):''),type,initial,fields:type==='list'&&initial.some(x=>x&&typeof x==='object')?Object.keys(initial[0]).map(name=>({name,label:({name:'Nom',price:'Prix',image:'Photo',quantity:'Quantité'})[name]||name,type:typeof initial[0][name]==='number'?'number':typeof initial[0][name]==='boolean'?'boolean':typeof initial[0][name]==='string'&&/^(assets\/|data:image\/)/.test(initial[0][name])?'image':'text'})):[]};p.variables.push(v);return v;
+ const sample=type==='list'&&Array.isArray(initial)?initial.find(x=>x&&typeof x==='object'&&!Array.isArray(x)):null;
+ const v={name:unique,label:(labels[name]||name)+(unique!==base?' '+unique.slice(base.length):''),type,initial,fields:sample?Object.keys(sample).map(name=>({name,label:({name:'Nom',price:'Prix',image:'Photo',quantity:'Quantité'})[name]||name,type:typeof sample[name]==='number'?'number':typeof sample[name]==='boolean'?'boolean':typeof sample[name]==='string'&&/^(assets\/|data:image\/)/.test(sample[name])?'image':'text'})):[]};p.variables.push(v);return v;
 }
 export function component(type,p){
  const node={id:uid('node'),type,name:catalog.find(c=>c.type===type)?.label||type,props:{text:type==='heading'?'Mon titre':type==='button'?'Mon bouton':'Mon texte'},style:{padding:12,gap:10,fontSize:type==='heading'?26:14,align:'left',width:'100%',radius:10,color:'',background:''},events:{click:[],change:[],item:[]},children:[]};
@@ -53,11 +54,50 @@ export function tasksTemplate(){
  button.events.click=[{type:'if',conditions:[{left:operand('variable',input.props.variable),op:'neq',right:operand('literal','')}],join:'and',then:[{type:'append',variable:list.props.variable,value:operand('variable',input.props.variable)},{type:'set',variable:input.props.variable,value:operand('literal','')}],else:[{type:'toast',value:operand('literal','Saisis une tâche.') }]}];p.screens[0].nodes=[title,input,button,list];return p;
 }
 export function validateProject(p){
- if(!p||p.version!==3||typeof p.id!=='string'||typeof p.name!=='string'||!p.theme||!Array.isArray(p.screens)||!p.screens.length||!Array.isArray(p.variables))return false;
- if(!['primary','background','text'].every(k=>/^#[0-9a-f]{6}$/i.test(p.theme[k]))||!Number.isFinite(p.theme.radius))return false;
- const ids=new Set(),names=new Set();for(const v of p.variables){if(!v||typeof v.name!=='string'||!/^\w+$/.test(v.name)||['__proto__','constructor','prototype'].includes(v.name)||names.has(v.name)||!['text','number','boolean','list','computed'].includes(v.type))return false;names.add(v.name);if(v.type==='list'&&(!Array.isArray(v.initial)||!Array.isArray(v.fields)||v.fields.some(f=>!f||!/^\w+$/.test(f.name)||['__proto__','constructor','prototype'].includes(f.name)||!['text','number','boolean','image'].includes(f.type))))return false;if(v.type==='text'&&typeof v.initial!=='string'||v.type==='boolean'&&typeof v.initial!=='boolean')return false;if(v.type==='number'&&(typeof v.initial!=='number'||!Number.isFinite(v.initial)))return false;}
- let ok=true;const validOperand=(v,depth=0)=>!v||depth<=30&&typeof v==='object'&&['literal','variable','input','item','length','cartTotal','math'].includes(v.kind)&&(v.kind!=='math'||validOperand(v.a,depth+1)&&validOperand(v.b,depth+1));const validActions=(list,depth=0)=>Array.isArray(list)&&depth<=30&&list.every(a=>a&&actionTypes.some(([type])=>type===a.type)&&validOperand(a.value)&&(a.type!=='if'||Array.isArray(a.conditions)&&a.conditions.every(c=>c&&validOperand(c.left)&&validOperand(c.right))&&validActions(a.then||[],depth+1)&&validActions(a.else||[],depth+1)));const visit=(nodes,depth)=>{if(depth>30||!Array.isArray(nodes)){ok=false;return;}for(const n of nodes){if(!n||typeof n.id!=='string'||ids.has(n.id)||!catalog.some(c=>c.type===n.type)||!n.props||!n.style||!n.events||!Object.values(n.events).every(actions=>validActions(actions))){ok=false;return;}ids.add(n.id);visit(n.children||[],depth+1);}};
+ const object=v=>v!==null&&typeof v==='object'&&!Array.isArray(v);
+ const safeKey=k=>!['__proto__','constructor','prototype'].includes(k);
+ const identifier=v=>typeof v==='string'&&/^[a-zA-Z0-9_-]+$/.test(v)&&safeKey(v);
+ const dataName=v=>typeof v==='string'&&/^\w+$/.test(v)&&safeKey(v);
+ const color=v=>typeof v==='string'&&/^#[0-9a-f]{6}$/i.test(v);
+ // Imports must remain safe to traverse and render, even if not produced by this editor.
+ let count=0;const safeJSON=(v,depth=0)=>{
+  if(depth>60||++count>200000)return false;
+  if(v===null||v===undefined||typeof v==='string'||typeof v==='boolean')return true;
+  if(typeof v==='number')return Number.isFinite(v);
+  if(Array.isArray(v))return v.every(x=>safeJSON(x,depth+1));
+  return object(v)&&Object.entries(v).every(([k,x])=>safeKey(k)&&safeJSON(x,depth+1));
+ };
+ // Check the original values: JSON.stringify would silently turn Infinity into null.
+ if(!safeJSON(p))return false;
+ if(!object(p)||p.version!==3||!identifier(p.id)||typeof p.name!=='string'||!object(p.theme)||!Array.isArray(p.screens)||!p.screens.length||!Array.isArray(p.variables))return false;
+ if(!['primary','background','text'].every(k=>color(p.theme[k]))||!Number.isFinite(p.theme.radius))return false;
+ const ids=new Set(),names=new Set();
+ for(const v of p.variables){
+  if(!object(v)||!dataName(v.name)||names.has(v.name)||typeof (v.label??v.name)!=='string'||!['text','number','boolean','list','computed'].includes(v.type))return false;
+  names.add(v.name);
+  if(v.type==='list'){
+   if(!Array.isArray(v.initial)||!Array.isArray(v.fields))return false;
+   const fields=new Set();for(const f of v.fields){if(!object(f)||!dataName(f.name)||fields.has(f.name)||typeof (f.label??f.name)!=='string'||!['text','number','boolean','image'].includes(f.type))return false;fields.add(f.name);}
+  }
+  if(v.type==='text'&&typeof v.initial!=='string'||v.type==='boolean'&&typeof v.initial!=='boolean'||v.type==='number'&&!Number.isFinite(v.initial))return false;
+ }
+ const validOperand=(v,depth=0)=>{
+  if(v===undefined)return true;
+  if(depth>30||!object(v)||!['literal','variable','input','item','length','cartTotal','math'].includes(v.kind))return false;
+  if(v.kind==='math')return ['add','subtract','multiply','divide'].includes(v.op)&&!!v.a&&!!v.b&&validOperand(v.a,depth+1)&&validOperand(v.b,depth+1);
+  if(['variable','length','cartTotal'].includes(v.kind))return v.name===undefined||v.name===''||dataName(v.name);
+  return v.kind!=='item'||v.field===undefined||typeof v.field==='string';
+ };
+ const validActions=(list,depth=0)=>Array.isArray(list)&&depth<=30&&list.every(a=>object(a)&&actionTypes.some(([type])=>type===a.type)&&validOperand(a.value)&&(!Object.hasOwn(a,'variable')||a.variable===''||dataName(a.variable))&&(!Object.hasOwn(a,'screen')||a.screen===''||identifier(a.screen))&&['delta','quantity'].every(k=>a[k]===undefined||Number.isFinite(a[k]))&&(a.type!=='if'||Array.isArray(a.conditions)&&[undefined,'and','or'].includes(a.join)&&a.conditions.every(c=>object(c)&&['eq','neq','gt','gte','lt','lte','contains','empty'].includes(c.op)&&validOperand(c.left)&&validOperand(c.right))&&validActions(a.then||[],depth+1)&&validActions(a.else||[],depth+1)));
+ const visit=(nodes,depth=0)=>{
+  if(depth>30||!Array.isArray(nodes))return false;
+  for(const n of nodes){
+   if(!object(n)||!identifier(n.id)||ids.has(n.id)||typeof n.name!=='string'||!catalog.some(c=>c.type===n.type)||!object(n.props)||!object(n.style)||!object(n.events)||!['click','change','item'].every(k=>validActions(n.events[k]))||Object.keys(n.events).some(k=>!['click','change','item'].includes(k)))return false;
+   if(!['padding','gap','fontSize','radius'].every(k=>n.style[k]===undefined||Number.isFinite(n.style[k])))return false;
+   ids.add(n.id);if(!visit(n.children||[],depth+1))return false;
+  }return true;
+ };
  for(const v of p.variables)if(v.type==='computed'&&!validOperand(v.formula))return false;
- for(const s of p.screens){if(!s||typeof s.id!=='string'||typeof s.name!=='string'||ids.has(s.id)){ok=false;break;}ids.add(s.id);visit(s.nodes,0);}
- return ok&&p.screens.some(s=>s.id===p.home);
+ for(const screen of p.screens){if(!object(screen)||!identifier(screen.id)||typeof screen.name!=='string'||ids.has(screen.id)||(screen.background!==undefined&&!color(screen.background)))return false;ids.add(screen.id);if(!visit(screen.nodes))return false;}
+ return p.screens.some(s=>s.id===p.home);
 }

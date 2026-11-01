@@ -1,10 +1,12 @@
 export async function encodeProject(project){
+ if(typeof CompressionStream!=='function')throw Error('Le partage nécessite un navigateur récent. Tu peux toujours exporter ton application en HTML.');
  const stream=new Blob([JSON.stringify(project)]).stream().pipeThrough(new CompressionStream('deflate'));
  const bytes=new Uint8Array(await new Response(stream).arrayBuffer());
  let binary='';for(const b of bytes)binary+=String.fromCharCode(b);
  return btoa(binary).replaceAll('+','-').replaceAll('/','_').replaceAll('=','');
 }
 export async function decodeProject(encoded){
+ if(typeof DecompressionStream!=='function')throw Error('Ouvre ce lien avec un navigateur récent.');
  if(encoded.length>4000000)throw Error('Lien trop volumineux.');
  const binary=atob(encoded.replaceAll('-','+').replaceAll('_','/'));
  const stream=new Blob([Uint8Array.from(binary,c=>c.charCodeAt(0))]).stream().pipeThrough(new DecompressionStream('deflate'));
