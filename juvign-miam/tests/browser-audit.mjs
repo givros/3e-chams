@@ -1,3 +1,4 @@
+import {auditEditorDrag} from './editor-drag-audit.mjs';
 import {chromium} from 'playwright';
 import {spawn} from 'node:child_process';
 import {fileURLToPath,pathToFileURL} from 'node:url';
@@ -54,6 +55,7 @@ try{
  await app.goto(pathToFileURL(exported).href);await app.locator('.rt-tabs button').nth(1).click();await app.locator('[data-event="item"]').first().click();await app.locator('.rt-tabs button').nth(2).click();await app.getByRole('button',{name:'Confirmer',exact:true}).click();
  if(!await app.getByText('Simulation : aucun paiement ni livraison.',{exact:true}).isVisible())throw Error('Offline confirmation is missing.');
  if(external.length)throw Error('Standalone export made external requests.');await offline.close();
+ await auditEditorDrag(page);
  if(errors.length)throw Error('Browser errors: '+errors.join('; '));console.log(`Passed ${total} browser checks and editor/share/offline export flows.`);
 }catch(error){if(page){await mkdir(path.join(root,'output/playwright'),{recursive:true});await page.screenshot({path:path.join(root,'output/playwright/browser-failure.png')}).catch(()=>{});}console.error(error);process.exitCode=1;}
 finally{await browser?.close();server.kill();}

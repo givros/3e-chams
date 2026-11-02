@@ -14,13 +14,21 @@ export function decorativeLayout(project,kind='card'){
  else group.children=[image,title,text];return group;
 }
 
-export function moveNode(project,nodeId,destinationId,screenId){
+export function insertNodeAt(project,node,destinationId,screenId,index){
+ const target=destinationId==='root'?null:findNode(project,destinationId),screen=project.screens.find(s=>s.id===screenId);
+ if(destinationId!=='root'&&!['container','form','accordion'].includes(target?.node.type)||destinationId==='root'&&!screen)return false;
+ const siblings=target?target.node.children:screen.nodes,position=index===undefined?siblings.length:index;
+ if(!Number.isInteger(position)||position<0||position>siblings.length)return false;siblings.splice(position,0,node);return true;
+}
+export function moveNode(project,nodeId,destinationId,screenId,index){
  const source=findNode(project,nodeId),target=destinationId==='root'?null:findNode(project,destinationId),screen=project.screens.find(s=>s.id===screenId);
  if(!source||destinationId!=='root'&&!['container','form','accordion'].includes(target?.node.type)||destinationId==='root'&&!screen)return false;
  const contains=n=>n.id===destinationId||(n.children||[]).some(contains);
  if(contains(source.node))return false;
- source.siblings.splice(source.siblings.indexOf(source.node),1);
- (target?target.node.children:screen.nodes).push(source.node);return true;
+ const siblings=target?target.node.children:screen.nodes,position=index===undefined?siblings.length:index;
+ if(!Number.isInteger(position)||position<0||position>siblings.length)return false;
+ const previous=source.siblings.indexOf(source.node),same=source.siblings===siblings;source.siblings.splice(previous,1);
+ siblings.splice(position-(same&&previous<position?1:0),0,source.node);return true;
 }
 export function containerTargets(project,nodeId,screenId){
  const result=[['root','Écran (hors groupe)']],screen=project.screens.find(s=>s.id===screenId);
