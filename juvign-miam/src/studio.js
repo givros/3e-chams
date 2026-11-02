@@ -1,4 +1,4 @@
-import {catalog,actionTypes,uid,blankProject,component,variable,walk,findNode,duplicateNode,operand,action,restaurantTemplate,tasksTemplate,validateProject} from './studio-model.js';
+import {catalog,actionTypes,uid,blankProject,component,variable,walk,findNode,duplicateNode,duplicateScreen,operand,action,restaurantTemplate,tasksTemplate,validateProject} from './studio-model.js';
 import {createPlayer,playerCSS} from './studio-player.js';
 import {screenTemplates,addScreenTemplate,mobileAppTemplate} from './screen-templates.js';
 import {encodeProject} from './share.js';
@@ -291,7 +291,7 @@ document.addEventListener('click',event=>{
  if(b.dataset.addCondition){commit(()=>safeGet(selected(),b.dataset.addCondition).conditions.push({left:operand('literal',''),op:'eq',right:operand('literal','')}));return;}
  if(b.dataset.deleteCondition){const parts=b.dataset.deleteCondition.split('.'),index=Number(parts.pop());commit(()=>safeGet(selected(),parts.join('.')).splice(index,1));return;}
  if(b.hasAttribute('data-set-home')){commit(()=>project.home=screenId);return;}
- if(b.hasAttribute('data-duplicate-screen')){commit(()=>{const s=structuredClone(currentScreen());s.id=uid('screen');s.name+=' copie';s.nodes=s.nodes.map(duplicateNode);project.screens.push(s);screenId=s.id;});return;}
+ if(b.hasAttribute('data-duplicate-screen')){commit(()=>{const s=duplicateScreen(project,screenId);screenId=s.id;selectedId=selectedVariable=null;});return;}
  if(b.hasAttribute('data-delete-screen')){if(project.screens.length<2||!confirm('Supprimer cet écran et ses composants ?'))return;commit(()=>{project.screens=project.screens.filter(s=>s.id!==screenId);if(project.home===screenId)project.home=project.screens[0].id;screenId=project.screens[0].id;selectedId=null;});return;}
  if(b.hasAttribute('data-add-record')){commit(()=>{const v=selected(),fields=v.fields||[];v.initial.push(fields.length?Object.fromEntries(fields.map(f=>[f.name,f.type==='number'?0:f.type==='boolean'?false:''])):'Nouvel élément');});return;}
  if(b.dataset.deleteRecord!==undefined){commit(()=>selected().initial.splice(Number(b.dataset.deleteRecord),1));return;}

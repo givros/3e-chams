@@ -50,9 +50,19 @@ export function component(type,p){
 export function walk(p,fn){for(const s of p.screens){const visit=(nodes,parent)=>{for(const n of nodes){fn(n,s,nodes,parent);visit(n.children||[],n);}};visit(s.nodes,null);}}
 export function findNode(p,id){let result;walk(p,(node,screen,siblings,parent)=>{if(node.id===id)result={node,screen,siblings,parent};});return result;}
 export function duplicateNode(node){
- const copy=structuredClone(node),ids=new Map();const visit=n=>{const old=n.id;n.id=uid('node');ids.set(old,n.id);for(const child of n.children||[])visit(child);};visit(copy);
+ return duplicateNodes([node])[0];
+}
+function duplicateNodes(nodes){
+ const copies=structuredClone(nodes),ids=new Map();const visit=n=>{const old=n.id;n.id=uid('node');ids.set(old,n.id);for(const child of n.children||[])visit(child);};copies.forEach(visit);
  const actions=list=>{for(const a of list||[]){if(ids.has(a.form))a.form=ids.get(a.form);if(a.type==='if'){actions(a.then);actions(a.else);}}};
- const remap=n=>{Object.values(n.events||{}).forEach(actions);(n.children||[]).forEach(remap);};remap(copy);return copy;
+ const remap=n=>{Object.values(n.events||{}).forEach(actions);(n.children||[]).forEach(remap);};copies.forEach(remap);return copies;
+}
+export function duplicateScreen(project,screenId){
+ const source=project.screens.find(s=>s.id===screenId);if(!source)throw Error('Écran introuvable.');
+ const copy=structuredClone(source);copy.id=uid('screen');let name=source.name+' copie',suffix=2;while(project.screens.some(s=>s.name===name))name=source.name+' copie '+suffix++;copy.name=name;if(copy.menuLabel)copy.menuLabel=name;
+ copy.nodes=duplicateNodes(source.nodes);
+ const actions=list=>{for(const a of list||[]){if(a.type==='navigate'&&a.screen===source.id)a.screen=copy.id;if(a.type==='if'){actions(a.then);actions(a.else);}}};
+ const visit=n=>{Object.values(n.events||{}).forEach(actions);(n.children||[]).forEach(visit);};copy.nodes.forEach(visit);project.screens.push(copy);return copy;
 }
 export function operand(kind='literal',value=''){return kind==='variable'?{kind,name:value}:kind==='math'?{kind,op:'add',a:{kind:'literal',value:0},b:{kind:'literal',value:1}}:{kind,value};}
 export function action(type,p){const number=p.variables.find(v=>v.type==='number'),list=p.variables.find(v=>v.type==='list'),any=p.variables.find(v=>v.type!=='computed');return {
