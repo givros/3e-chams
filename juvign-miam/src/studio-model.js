@@ -2,7 +2,7 @@ export const catalog=[
  ['heading','Titre','T'],['text','Texte','¶'],['image','Image','▧'],['button','Bouton','↗'],['back','Retour','←'],
  ['input','Saisie','⌨'],['number','Nombre','123'],['textarea','Texte long','≡'],['select','Choix','▾'],['toggle','Interrupteur','◉'],
  ['search','Recherche','⌕'],['date','Date','▦'],['range','Curseur','↔'],['rating','Étoiles','★'],['progress','Progression','▰'],['badge','Étiquette','●'],['form','Formulaire','▤'],['accordion','Volet dépliant','⌄'],
- ['container','Groupe d’éléments','□'],['list','Liste','☷'],['products','Liste de produits','▦'],['cart','Panier','＋'],['divider','Séparateur','—'],['spacer','Espacement','↕']
+ ['container','Groupe d’éléments','□'],['list','Liste','☷'],['products','Liste de produits','▦'],['productDetail','Fiche article','▣'],['cart','Panier','＋'],['divider','Séparateur','—'],['spacer','Espacement','↕']
 ].map(([type,label,icon])=>({type,label,icon}));
 export const actionTypes=[['set','Remplacer une donnée'],['increment','Ajouter ou retirer un nombre'],['append','Ajouter à une liste'],['remove','Retirer de la liste'],['navigate','Changer d’écran'],['back','Revenir à l’écran précédent'],['validate','Vérifier les champs'],['if','Si / sinon'],['toast','Afficher un message'],['cartAdd','Ajouter au panier'],['reset','Réinitialiser les données']];
 export const uid=prefix=>prefix+'_'+crypto.randomUUID().slice(0,8);
@@ -34,9 +34,10 @@ export function component(type,p){
  }
  if(type==='container')Object.assign(node.props,{direction:'column'});
  if(type==='list'){const v=variable(p,'items','list',['Premier élément']);Object.assign(node.props,{variable:v.name,itemText:'{{item.name}}',removable:true,itemButton:'',empty:'Liste vide'});}
- if(type==='products'){
-  const v=variable(p,'products','list',[{name:'Premier article',price:10,image:'assets/pizza.jpg'}]),cart=p.variables.find(v=>v.name==='cart'&&v.type==='list')||variable(p,'cart','list',[]);
+ if(type==='products'||type==='productDetail'){
+  const v=variable(p,type==='productDetail'?'article':'products','list',[{name:'Premier article',price:10,image:'assets/pizza.jpg',...(type==='productDetail'?{description:'Description de mon article.'}:{})}]),cart=p.variables.find(v=>v.name==='cart'&&v.type==='list')||variable(p,'cart','list',[]);
   Object.assign(node.props,{variable:v.name,nameField:'name',priceField:'price',imageField:'image',itemButton:'Ajouter',empty:'Aucun article'});node.events.item=[{type:'cartAdd',variable:cart.name,quantity:1}];
+  if(type==='productDetail')Object.assign(node.props,{descriptionField:'description',itemIndex:0,itemButton:'Ajouter au panier'});
  }
  if(type==='cart'){
   const v=p.variables.find(v=>v.name==='cart'&&v.type==='list')||variable(p,'cart','list',[]);Object.assign(node.props,{variable:v.name,delivery:0,freeAt:0,discountVariable:'',checkout:'Confirmer',empty:'Panier vide'});node.events.click=[{type:'toast',value:{kind:'literal',value:'Commande simulée confirmée.'}}];
