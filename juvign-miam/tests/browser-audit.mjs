@@ -24,6 +24,9 @@ try{
  for(const [file,run]of suites){const result=await page.evaluate(async([file,run])=>(await import(`/tests/${file}.js`))[run](),[file,run]);console.log(`${file}: ${result.passed}/${result.total}`);if(result.failed.length)throw Error(JSON.stringify(result.failed));total+=result.total;}
  // Exercise editor controls as a student would, including their saved model.
  await page.locator('#new-project').click();await page.locator('[data-template="mobile"]').click();
+ await page.locator('[data-tab="screens"]').click();await page.getByRole('button',{name:'Monter Carte dans le menu',exact:true}).click();
+ if((await page.locator('#player .rt-tabs b').allTextContents())[0]!=='Carte')throw Error('Menu order did not update.');await page.locator('#undo').click();
+ if((await page.locator('#player .rt-tabs b').allTextContents())[0]!=='Accueil')throw Error('Undo did not restore menu order.');
  await page.locator('#test-mode').click();await page.getByRole('button',{name:'Voir la carte',exact:true}).click();
  await page.locator('#player [data-event="item"]').first().click();await page.getByRole('button',{name:'Voir mon panier',exact:true}).click();
  await page.getByRole('button',{name:'Confirmer',exact:true}).click();

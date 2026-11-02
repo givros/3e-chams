@@ -4,7 +4,7 @@ import {screenTemplates,addScreenTemplate,mobileAppTemplate} from './screen-temp
 import {encodeProject} from './share.js';
 import {projectIssues} from './studio-diagnostics.js';
 import {columnLayout,moveNode,containerTargets,decorativeLayout} from './studio-layout.js';
-import {navigationSettings,setNavigation,cleanNavigation} from './studio-navigation.js';
+import {navigationSettings,setNavigation,cleanNavigation,moveNavigationItem} from './studio-navigation.js';
 import {componentCategories,libraryEntries,normalizeSearch} from './studio-library.js';
 import {activeProjectKey,listProjects,archiveProject,switchProject,removeProject,loadActiveProject,listRecoveries,recoveryPrefix,importedProjectCopy,projectLibraryStatus,repairProjectLibrary} from './studio-projects.js';
 import {themePresets,appFonts,applyThemePreset,setAppBackground,readableText} from './studio-theme.js';
@@ -89,7 +89,7 @@ function renderLibrary(){
  if(libraryTab==='actions')html=`<div class="section-label">Blocs d’action</div><div class="action-palette">${actionTypes.map(([type,label])=>`<button class="${type==='if'?'if-block':''}" draggable="true" data-add-action="${type}">${type==='if'?'◇':'↳'} ${label}</button>`).join('')}</div><p class="help">Sélectionne un composant, puis dépose les blocs dans son événement. Un clic ajoute le bloc à la fin.</p>`;
  if(libraryTab==='screens'){
   const nav=navigationSettings(project);
-  html+=`<section class="navigation-config"><div class="section-label">Menu de l’application</div><label class="toggle-row">Afficher un menu<input type="checkbox" data-navigation-prop="enabled" ${nav.enabled?'checked':''}></label>${nav.enabled?`<label class="field-label">Présentation</label><select class="full" data-navigation-prop="style">${option('tabs','Onglets en bas',nav.style)}${option('drawer','Menu latéral ☰',nav.style)}</select><label class="toggle-row">Barre de titre<input type="checkbox" data-navigation-prop="showHeader" ${nav.showHeader?'checked':''}></label><label class="toggle-row">Flèche de retour<input type="checkbox" data-navigation-prop="showBack" ${nav.showBack?'checked':''}></label><label class="field-label">Écrans dans le menu</label>${project.screens.map(s=>`<label class="nav-screen-choice"><input type="checkbox" data-navigation-item="${s.id}" ${nav.items.includes(s.id)?'checked':''}><span>${esc(s.name)}</span></label>`).join('')}`:''}</section>`;
+  html+=`<section class="navigation-config"><div class="section-label">Menu de l’application</div><label class="toggle-row">Afficher un menu<input type="checkbox" data-navigation-prop="enabled" ${nav.enabled?'checked':''}></label>${nav.enabled?`<label class="field-label">Présentation</label><select class="full" data-navigation-prop="style">${option('tabs','Onglets en bas',nav.style)}${option('drawer','Menu latéral ☰',nav.style)}</select><label class="toggle-row">Barre de titre<input type="checkbox" data-navigation-prop="showHeader" ${nav.showHeader?'checked':''}></label><label class="toggle-row">Flèche de retour<input type="checkbox" data-navigation-prop="showBack" ${nav.showBack?'checked':''}></label><label class="field-label">Écrans dans le menu</label>${[...nav.items.map(id=>project.screens.find(s=>s.id===id)).filter(Boolean),...project.screens.filter(s=>!nav.items.includes(s.id))].map(s=>{const index=nav.items.indexOf(s.id);return `<div class="nav-screen-row"><label class="nav-screen-choice"><input type="checkbox" data-navigation-item="${s.id}" ${index>=0?'checked':''}><span>${esc(s.menuLabel||s.name)}</span></label>${index>=0?`<button data-order-navigation="${s.id}" data-delta="-1" aria-label="Monter ${esc(s.menuLabel||s.name)} dans le menu" ${index===0?'disabled':''}>↑</button><button data-order-navigation="${s.id}" data-delta="1" aria-label="Descendre ${esc(s.menuLabel||s.name)} dans le menu" ${index===nav.items.length-1?'disabled':''}>↓</button>`:''}</div>`;}).join('')}`:''}</section>`;
  }
  $('#library-content').innerHTML=html;if(focusId){const el=document.getElementById(focusId);if(el){el.focus();try{el.setSelectionRange(caret,caret);}catch{}}}
 }
@@ -272,6 +272,7 @@ document.addEventListener('click',event=>{
  if(b.dataset.emptyList){commit(()=>safeSet(selected(),b.dataset.emptyList,[]));return;}
  if(b.dataset.tab){libraryTab=b.dataset.tab;renderLibrary();return;}
  if(b.hasAttribute('data-open-navigation')){commit(()=>{libraryTab='screens';setNavigation(project,{enabled:true});});document.querySelector('.navigation-config')?.scrollIntoView({block:'start'});return;}
+ if(b.dataset.orderNavigation){commit(()=>moveNavigationItem(project,b.dataset.orderNavigation,Number(b.dataset.delta)));return;}
  if(b.dataset.screenModel){commit(()=>{screenId=addScreenTemplate(project,b.dataset.screenModel).id;selectedId=selectedVariable=null;mode='design';});return;}
  if(b.dataset.addLayout){addNode('container',0,b.dataset.addLayout);return;}
  if(b.dataset.addColumns){addNode('container',Number(b.dataset.addColumns));return;}
