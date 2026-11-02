@@ -1,3 +1,5 @@
+import {starterProject} from './studio-start.js';
+import {installFlowUI} from './studio-flow-ui.js';
 import {photoBank,photoCategories} from './studio-photos.js';
 import {createLocalCamera} from './studio-camera.js';
 import {iconChoices,renderAppIcon} from './studio-icons.js';
@@ -23,6 +25,8 @@ const storageKey=activeProjectKey;let project=blankProject(),loadMessage='',comp
 let recovery=null;
 try{const loaded=loadActiveProject(localStorage);project=loaded.project;recovery=loaded.recovery||null;if(recovery)loadMessage='Une ancienne sauvegarde a été conservée pour récupération.';}catch{loadMessage='Enregistrement local indisponible.';}
 
+try{if(!localStorage.getItem(storageKey)&&!localStorage.getItem('juvign-miam-starter-complete')&&!recovery)project=starterProject();}catch{}
+let flowUI;
 walk(project,n=>{const match=String(n.props.text||'').match(/^(.*?)\{\{(\w+)\}\}$/);if(match&&!n.props.textVariable&&project.variables.some(v=>v.name===match[2])){n.props.text=match[1];n.props.textVariable=match[2];}});
 for(const v of project.variables)for(const f of v.fields||[])if(f.type==='text'&&v.initial?.some(item=>typeof item?.[f.name]==='string'&&/^(assets\/|data:image\/)/.test(item[f.name])))f.type='image';
 let screenId=project.home,selectedId=null,selectedVariable=null,libraryTab='components',inspectorTab='props',eventName='click',mode='design',actionPath=null,history=[],future=[],lastEdit='',lastEditTime=0,dragItem=null,uploadTarget=null,player,lastState={};
@@ -53,7 +57,7 @@ function renderProjectLibrary(){
 
 }
 function editorSnapshot(){return {project:JSON.stringify(project),screenId,selectedId,selectedVariable,inspectorTab,eventName,libraryTab};}
-function restoreEditor(snapshot){project=JSON.parse(snapshot.project);screenId=project.screens.some(s=>s.id===snapshot.screenId)?snapshot.screenId:project.home;selectedId=findNode(project,snapshot.selectedId)?snapshot.selectedId:null;selectedVariable=project.variables.some(v=>v.name===snapshot.selectedVariable)?snapshot.selectedVariable:null;inspectorTab=snapshot.inspectorTab;eventName=snapshot.eventName;libraryTab=snapshot.libraryTab;save();renderAll();}
+function restoreEditor(snapshot){const completedId=project.starter?.complete?project.id:null;project=JSON.parse(snapshot.project);if(project.id===completedId&&project.starter)project.starter.complete=true;screenId=project.screens.some(s=>s.id===snapshot.screenId)?snapshot.screenId:project.home;selectedId=findNode(project,snapshot.selectedId)?snapshot.selectedId:null;selectedVariable=project.variables.some(v=>v.name===snapshot.selectedVariable)?snapshot.selectedVariable:null;inspectorTab=snapshot.inspectorTab;eventName=snapshot.eventName;libraryTab=snapshot.libraryTab;save();renderAll();}
 function snapshot(key='',saved){const now=Date.now();if(!key||key!==lastEdit||now-lastEditTime>900){history.push(saved||editorSnapshot());if(history.length>30)history.shift();}lastEdit=key;lastEditTime=now;future=[];}
 function commit(mutator,{redraw=true,key=''}={}){
  const before=editorSnapshot(),oldHistory=history.slice(),oldFuture=future.slice(),oldEdit=lastEdit,oldTime=lastEditTime;
@@ -148,7 +152,7 @@ function renderNodeProps(n){
  if(n.type==='image')html+=field('Image venant d’une donnée',selectInput('props.srcVariable',x.srcVariable||'',variablesOptions('text')));
  if(['button','back','icon'].includes(n.type)){
   const destination=n.events.click.find(a=>a.type==='navigate'||a.type==='back');
-  html+=field('Au clic, ouvrir',`<select class="full" data-button-navigation>${option('','Aucun écran (autres actions)',destination?.screen||destination?.type||'')}${option('back','← L’écran précédent',destination?.type)}${project.screens.map(s=>option(s.id,s.name,destination?.screen)).join('')}</select>`);
+  html+=`<button class="solid-button" data-open-connections-for="${n.id}">↗ Relier à un écran visuellement</button>`+field('Au clic, ouvrir',`<select class="full" data-button-navigation>${option('','Aucun écran (autres actions)',destination?.screen||destination?.type||'')}${option('back','← L’écran précédent',destination?.type)}${project.screens.map(s=>option(s.id,s.name,destination?.screen)).join('')}</select>`);
  }
  if(['input','number','textarea','select','toggle','search','date','range','rating','camera'].includes(n.type))html+=field('Libellé',input('props.label',x.label||''))+field('Enregistrer la saisie dans',selectInput('props.variable',x.variable,variablesOptions(['number','range','rating'].includes(n.type)?'number':n.type==='toggle'?'boolean':'text')))+(['toggle','range','rating','date'].includes(n.type)?'':field('Texte indicatif',input('props.placeholder',x.placeholder||'')))+(n.type==='select'?field('Options (une par ligne)',`<textarea data-path="props.options">${esc(x.options)}</textarea>`):'');
  if(['input','number','textarea','select','toggle','date','rating'].includes(n.type))html+=`<label class="toggle-row">Champ obligatoire<input type="checkbox" data-path="props.required" ${x.required?'checked':''}></label>`;
@@ -230,7 +234,7 @@ function refreshPlayer(){
  $('#canvas-status').textContent=(mode==='design'?'Conception':'Test')+' · '+currentScreen().name;
  $('#design-mode').classList.toggle('active',mode==='design');$('#test-mode').classList.toggle('active',mode==='test');
 }
-function renderAll(){renderScreensPicker();renderLibrary();renderInspector();if(player)refreshPlayer();renderIssues();}
+function renderAll(){renderScreensPicker();renderLibrary();renderInspector();if(player)refreshPlayer();renderIssues();flowUI?.refresh();}
 function insertAction(type,path=null){const n=findNode(project,selectedId)?.node;if(!n){$('#canvas-status').textContent='Sélectionne un composant pour lui ajouter une action.';return;}commit(()=>{inspectorTab='actions';if(!path)path='events.'+eventName;let list=safeGet(n,path);if(!Array.isArray(list)){safeSet(n,path,[]);list=safeGet(n,path);}list.push(action(type,project));});}
 function addScreen(){commit(()=>{const s={id:uid('screen'),name:'Écran '+(project.screens.length+1),background:project.theme.background,nodes:[]};project.screens.push(s);screenId=s.id;selectedId=selectedVariable=null;});}
 function mutateProperty(input,redraw=false){const target=selected();if(!target)return;const path=input.dataset.path;if(path==='props.srcVariable')imageJob++;let next=input.type==='checkbox'?input.checked:input.type==='number'?Number(input.value):input.dataset.boolean==='true'?input.value==='true':input.value;if(input.type==='number'){if(!Number.isFinite(next))return;if(input.min!=='')next=Math.max(Number(input.min),next);if(input.max!=='')next=Math.min(Number(input.max),next);}
@@ -279,6 +283,7 @@ document.addEventListener('click',event=>{
  const b=event.target.closest('button');if(!b||b.disabled)return;
  if(b.hasAttribute('data-use-app-style')){const n=selected();if(n)commit(()=>{n.style.color='';n.style.background='';delete n.style.radius;});return;}
  if(b.dataset.themePreset){commit(()=>applyThemePreset(project,b.dataset.themePreset));return;}
+ if(b.dataset.openConnectionsFor){flowUI?.openFor(b.dataset.openConnectionsFor);return;}
  if(b.dataset.editData){selectedVariable=b.dataset.editData;selectedId=null;libraryTab='data';inspectorTab='props';renderAll();return;}
  if(b.hasAttribute('data-create-detail')){const n=selected();if(n?.type!=='products')return;if(n.events.item.some(a=>a.type!=='cartAdd')&&!confirm('Relier ce catalogue à une nouvelle fiche ? Ses actions actuelles sur les articles seront remplacées.'))return;try{commit(()=>{const result=createProductDetails(project,n.id);screenId=result.screen.id;selectedId=result.node.id;selectedVariable=null;eventName='item';inspectorTab='props';libraryTab='screens';mode='design';});}catch(error){$('#canvas-status').textContent=error.message;}return;}
  if(b.hasAttribute('data-download-library')){const status=projectLibraryStatus(localStorage);if(status.raw){download(status.raw,'application/json','bibliotheque-a-recuperer.json');libraryCopyDownloaded=true;}return;}
@@ -322,7 +327,7 @@ document.addEventListener('click',event=>{
  if(b.dataset.deleteColumn!==undefined){commit(()=>{const v=selected(),[f]=v.fields.splice(Number(b.dataset.deleteColumn),1);for(const row of v.initial)if(row&&typeof row==='object')delete row[f.name];});return;}
  if(b.hasAttribute('data-delete-variable')){if(!confirm('Supprimer cette variable ? Les composants liés devront être reconfigurés.'))return;commit(()=>{project.variables=project.variables.filter(v=>v.name!==selectedVariable);selectedVariable=null;});return;}
  if(b.hasAttribute('data-rename-variable')){const previous=selectedVariable,next=prompt('Nouvel identifiant de la variable',previous);if(!next||!/^\w+$/.test(next)||['__proto__','constructor','prototype'].includes(next)||project.variables.some(v=>v.name===next))return;commit(()=>{const visit=obj=>{if(!obj||typeof obj!=='object')return;for(const [k,v]of Object.entries(obj)){if(typeof v==='string'){if(['variable','discountVariable','visibleVariable','textVariable','darkVariable'].includes(k)&&v===previous||['variable','length','cartTotal'].includes(obj.kind)&&k==='name'&&v===previous)obj[k]=next;else obj[k]=v.replaceAll('{{'+previous+'}}','{{'+next+'}}').replaceAll('{{'+previous+'.','{{'+next+'.');}else visit(v);}};selected().name=next;visit(project);selectedVariable=next;});return;}
- if(b.dataset.template){const next=b.dataset.template==='mobile'?mobileAppTemplate():b.dataset.template==='restaurant'?restaurantTemplate():b.dataset.template==='tasks'?tasksTemplate():blankProject();if(activateProject(next))$('#new-dialog').close();return;}
+ if(b.dataset.template){const next=b.dataset.template==='starter'?starterProject():b.dataset.template==='mobile'?mobileAppTemplate():b.dataset.template==='restaurant'?restaurantTemplate():b.dataset.template==='tasks'?tasksTemplate():blankProject();if(activateProject(next))$('#new-dialog').close();return;}
  if(b.dataset.close){if(b.dataset.close==='preview-dialog')previewPlayer?.destroy();$('#'+b.dataset.close).close();}
 });
 $('#image-upload').onchange=async event=>{
@@ -425,4 +430,5 @@ $('#share-app').onclick=async()=>{
  }catch(error){$('#share-status').textContent=error.message;}
 };
 $('#copy-share').onclick=async()=>{try{await navigator.clipboard.writeText($('#share-link').value);$('#share-status').textContent='Lien copié.';}catch{$('#share-link').select();$('#share-status').textContent='Sélectionne puis copie le lien.';}};
+flowUI=installFlowUI({getProject:()=>project,commit,finishStarter:()=>{project.starter.complete=true;save();renderAll();},openActions:(id,event)=>{selectNode(id);eventName=event||'click';inspectorTab='actions';renderInspector();},openScreen:id=>{screenId=id;selectedId=selectedVariable=null;mode='design';renderAll();}});
 renderAll();save();if(loadMessage)$('#save-status').textContent=loadMessage;

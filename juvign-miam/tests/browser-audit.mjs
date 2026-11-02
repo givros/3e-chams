@@ -18,6 +18,9 @@ try{
  }
  browser=await chromium.launch({headless:true,args:['--use-fake-device-for-media-stream','--use-fake-ui-for-media-stream']});page=await browser.newPage({viewport:{width:1440,height:900}});
  const errors=[];page.on('pageerror',error=>errors.push(error.message));await page.goto(url);
+ await page.locator('#starter-dialog').waitFor({state:'visible'});if(await page.locator('#starter-finish').isEnabled())throw Error('Starter can be skipped before construction.');
+ await page.locator('[data-starter-add=heading]').click();await page.locator('[data-starter-property=text]').fill('Mon univers');await page.locator('[data-starter-add=image]').click();await page.locator('[data-starter-property=src]').selectOption('assets/mountain.jpg');await page.locator('[data-starter-add=button]').click();await page.locator('[data-starter-property=text]').fill('Découvrir');
+ await page.reload();await page.locator('#starter-finish').click();if(await page.locator('#player [data-player-node]').count()!==3)throw Error('Starter work was not preserved.');await page.reload();if(await page.locator('#starter-dialog').isVisible())throw Error('Completed starter unexpectedly restarted.');
  await page.locator('[data-add-component="heading"]').waitFor();
  const suites=[['player-browser-audit','runAudit'],['navigation-browser-audit','runNavigationAudit'],['extended-components-browser-audit','runExtendedAudit'],['theme-browser-audit','runThemeAudit'],['templates-browser-audit','runTemplateAudit'],['detail-browser-audit','runDetailAudit'],['images-browser-audit','runImageAudit'],['mobile-flow-browser-audit','runMobileFlowAudit'],['icons-browser-audit','runIconAudit'],['camera-browser-audit','runCameraAudit']];
  let total=0;
@@ -27,6 +30,9 @@ try{
  if(!await page.locator('#player img[src="assets/forest.jpg"]').count())throw Error('Selected themed photo did not update.');
  // Exercise editor controls as a student would, including their saved model.
  await page.locator('#new-project').click();await page.locator('[data-template="mobile"]').click();
+ const route=await page.evaluate(()=>{const p=JSON.parse(localStorage.getItem('juvign-miam-studio-v3'));return {button:p.screens[0].nodes.find(n=>n.type==='button').id,target:p.screens[3].id};});
+ await page.locator('#connections').click();await page.locator('[data-connection-source="'+route.button+'"]').first().click();await page.locator('[data-connection-target="'+route.target+'"]').click();await page.waitForFunction(()=>document.querySelectorAll('#connection-lines>path').length>0);await page.locator('[data-close="connections-dialog"]').click();
+ await page.locator('#test-mode').click();await page.locator('#player').getByRole('button',{name:'Voir la carte',exact:true}).click();if(await page.locator('#screen-picker').inputValue()!==route.target)throw Error('Visual connection did not navigate.');await page.locator('#design-mode').click();await page.locator('#undo').click();
  await page.locator('[data-tab="screens"]').click();await page.getByRole('button',{name:'Monter Carte dans le menu',exact:true}).click();
  if((await page.locator('#player .rt-tabs b').allTextContents())[0]!=='Carte')throw Error('Menu order did not update.');await page.locator('#undo').click();
  if((await page.locator('#player .rt-tabs b').allTextContents())[0]!=='Accueil')throw Error('Undo did not restore menu order.');
