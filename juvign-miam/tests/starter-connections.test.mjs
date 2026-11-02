@@ -1,15 +1,23 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import {starterProject,starterProgress,addStarterNode} from '../src/studio-start.js';
+import {starterProject,starterProgress,addStarterNode,dropStarterNode} from '../src/studio-start.js';
 import {connectScreen,disconnectScreen,screenConnections} from '../src/studio-connections.js';
 import {component,validateProject} from '../src/studio-model.js';
 
 test('starter completion depends on the actual screen contents and ordering',()=>{
  const p=starterProject();assert.equal(starterProgress(p).done,false);
  const image=addStarterNode(p,'image'),title=addStarterNode(p,'heading'),button=addStarterNode(p,'button');title.props.text='Mon univers';image.props.src='assets/mountain.jpg';button.props.text='Découvrir';
- assert.equal(starterProgress(p).done,false);p.screens[0].nodes=[title,image,button];assert.equal(starterProgress(p).done,true);
+ assert.equal(starterProgress(p).done,false);p.screens[0].nodes=[title,image,button];assert.equal(starterProgress(p).done,false);for(const [index,type]of ['heading','image','button'].entries())dropStarterNode(p,{type},index);assert.equal(starterProgress(p).done,true);
  assert.equal(addStarterNode(p,'button'),null);assert.equal(addStarterNode(p,'camera'),null);assert.ok(validateProject(p));
  button.props.text='Autre chose';assert.equal(starterProgress(p).done,false);
+});
+
+test('dropping creates a single block and moving it preserves its edits',()=>{
+ const p=starterProject(),photo=dropStarterNode(p,{type:'image'},0),title=dropStarterNode(p,{type:'heading'},1);title.props.text='Mon univers';
+ assert.deepEqual(p.screens[0].nodes.map(n=>n.type),['image','heading']);
+ dropStarterNode(p,{id:title.id},0);assert.deepEqual(p.screens[0].nodes.map(n=>n.type),['heading','image']);assert.equal(title.props.text,'Mon univers');
+ dropStarterNode(p,{type:'image'},0);assert.equal(p.screens[0].nodes.length,2);assert.equal(p.screens[0].nodes[0],photo);
+ assert.equal(dropStarterNode(p,{id:'missing'},0),null);assert.equal(dropStarterNode(p,{type:'camera'},0),null);assert.equal(dropStarterNode(p,{type:'button'},99),null);assert.ok(validateProject(p));
 });
 
 test('visual links replace direct navigation while retaining other button actions and their order',()=>{
