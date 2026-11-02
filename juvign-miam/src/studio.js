@@ -3,24 +3,29 @@ import {createPlayer,playerCSS} from './studio-player.js';
 import {screenTemplates,addScreenTemplate,mobileAppTemplate} from './screen-templates.js';
 import {encodeProject} from './share.js';
 import {projectIssues} from './studio-diagnostics.js';
-import {columnLayout,moveNode} from './studio-layout.js';
+import {columnLayout,moveNode,containerTargets} from './studio-layout.js';
 import {navigationSettings,setNavigation,cleanNavigation} from './studio-navigation.js';
 import {componentCategories,libraryEntries,normalizeSearch} from './studio-library.js';
-import {activeProjectKey,listProjects,archiveProject,switchProject,removeProject} from './studio-projects.js';
+import {activeProjectKey,listProjects,archiveProject,switchProject,removeProject,loadActiveProject,listRecoveries,recoveryPrefix} from './studio-projects.js';
 import {themePresets,appFonts,applyThemePreset,setAppBackground,readableText} from './studio-theme.js';
 import {createProductDetails} from './studio-detail.js';
+import {describeTestState} from './studio-inspection.js';
+import {syncDataLabels,addListField,changeListFieldType,connectListFields} from './studio-data.js';
 const $=s=>document.querySelector(s),esc=v=>String(v??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 const photoNames={burger:'Burger',pizza:'Pizza',sushi:'Sushis',tacos:'Tacos',fries:'Frites',drink:'Boisson'};
 const typeLabels={text:'Texte',number:'Nombre',boolean:'Oui / non',list:'Liste',computed:'Calcul'};
 const storageKey=activeProjectKey;let project=blankProject(),loadMessage='',componentQuery='',componentCategory='all',modelQuery='',librarySaveTimer;
-try{const saved=JSON.parse(localStorage.getItem(storageKey));if(validateProject(saved))project=saved;}catch{loadMessage='Sauvegarde locale indisponible.';}
+let recovery=null;
+try{const loaded=loadActiveProject(localStorage);project=loaded.project;recovery=loaded.recovery||null;if(recovery)loadMessage='Une ancienne sauvegarde a été conservée pour récupération.';}catch{loadMessage='Enregistrement local indisponible.';}
+
 walk(project,n=>{const match=String(n.props.text||'').match(/^(.*?)\{\{(\w+)\}\}$/);if(match&&!n.props.textVariable&&project.variables.some(v=>v.name===match[2])){n.props.text=match[1];n.props.textVariable=match[2];}});
 for(const v of project.variables)for(const f of v.fields||[])if(f.type==='text'&&v.initial?.some(item=>typeof item?.[f.name]==='string'&&/^(assets\/|data:image\/)/.test(item[f.name])))f.type='image';
 let screenId=project.home,selectedId=null,selectedVariable=null,libraryTab='components',inspectorTab='props',eventName='click',mode='design',actionPath=null,history=[],future=[],lastEdit='',lastEditTime=0,dragItem=null,uploadTarget=null,player,lastState={};
 const style=document.createElement('style');style.textContent=playerCSS;document.head.append(style);
 function save(){
+ syncDataLabels(project);
  clearTimeout(librarySaveTimer);
- try{localStorage.setItem(storageKey,JSON.stringify(project));$('#save-status').textContent='Enregistré sur cet ordinateur';librarySaveTimer=setTimeout(()=>{try{archiveProject(localStorage,project);}catch{$('#save-status').textContent='Bibliothèque pleine : télécharge une sauvegarde du projet.';}},650);}catch{$('#save-status').textContent='Stockage plein : télécharge le projet JSON.';}
+ if(recovery?.blocked){$('#save-status').textContent='Récupère l’ancienne sauvegarde avant d’enregistrer.';}else try{localStorage.setItem(storageKey,JSON.stringify(project));$('#save-status').textContent='Enregistré sur cet ordinateur';librarySaveTimer=setTimeout(()=>{try{archiveProject(localStorage,project);}catch{$('#save-status').textContent='Bibliothèque indisponible : télécharge une sauvegarde du projet.';}},650);}catch{$('#save-status').textContent='Stockage plein : télécharge le projet JSON.';}
  $('#undo').disabled=!history.length;$('#redo').disabled=!future.length;
 }
 function projectError(error){
@@ -29,16 +34,27 @@ function projectError(error){
  for(const id of ['projects','new-project']){const target=$('#'+id+'-error');if(target){target.hidden=false;target.textContent=message;}}
 }
 function activateProject(next,{undoable=false}={}){
- try{clearTimeout(librarySaveTimer);switchProject(localStorage,project,next);if(undoable)snapshot();else{history=[];future=[];}project=next;screenId=project.home;selectedId=selectedVariable=null;mode='design';libraryTab='components';componentQuery=modelQuery='';componentCategory='all';save();renderAll();return true;}catch(error){projectError(error);return false;}
+ if(recovery?.blocked){for(const id of ['new-dialog','projects-dialog'])$('#'+id).close();projectError(Error('Télécharge d’abord l’ancienne sauvegarde avec le bouton de récupération.'));return false;}
+ try{clearTimeout(librarySaveTimer);switchProject(localStorage,project,next);if(undoable)snapshot();else{history=[];future=[];lastEdit='';lastEditTime=0;}project=next;screenId=project.home;selectedId=selectedVariable=null;mode='design';libraryTab='components';componentQuery=modelQuery='';componentCategory='all';save();renderAll();return true;}catch(error){projectError(error);return false;}
 }
 function renderProjectLibrary(){
  let records=listProjects(localStorage);if(!records.some(r=>r.project.id===project.id))records.unshift({project,updatedAt:new Date().toISOString()});
  const query=normalizeSearch($('#project-library-search').value);
  records=records.filter(r=>!query||normalizeSearch(r.project.name).includes(query)).sort((a,b)=>(b.project.id===project.id)-(a.project.id===project.id)||b.updatedAt.localeCompare(a.updatedAt));
  $('#project-list').innerHTML=records.length?records.map(r=>{const p=r.project,active=p.id===project.id;return `<div class="project-row"><div><input data-project-name="${p.id}" aria-label="Nom de l’application ${esc(p.name)}" value="${esc(active?project.name:p.name)}"><small>${p.screens.length} écran${p.screens.length>1?'s':''} · ${new Date(r.updatedAt).toLocaleString('fr-FR',{timeZone:'Europe/Paris',day:'numeric',month:'short',hour:'2-digit',minute:'2-digit'})}</small></div><button class="project-open" data-project-open="${p.id}" ${active?'disabled':''}>${active?'Ouverte':'Ouvrir'}</button><button data-project-copy="${p.id}">Dupliquer</button><button class="danger" data-project-delete="${p.id}" ${active?'disabled':''}>Supprimer</button></div>`;}).join(''):'<p class="help">Aucune application trouvée.</p>';
+ const copies=listRecoveries(localStorage);if(copies.length)$('#project-list').insertAdjacentHTML('beforeend',`<details class="advanced"><summary>Copies à récupérer (${copies.length})</summary>${copies.map(copy=>`<div class="project-recovery-row"><span>${esc(copy.name)}</span><button data-recover-copy="${esc(copy.key)}">Télécharger</button><button class="danger" data-delete-recovery="${esc(copy.key)}">Supprimer</button></div>`).join('')}</details>`);
+
 }
-function snapshot(key=''){const now=Date.now();if(!key||key!==lastEdit||now-lastEditTime>900){history.push(JSON.stringify(project));if(history.length>30)history.shift();}lastEdit=key;lastEditTime=now;future=[];}
-function commit(mutator,{redraw=true,key=''}={}){snapshot(key);const screens=new Set(project.screens.map(s=>s.id));mutator();if(project.navigation?.enabled)for(const s of project.screens)if(!screens.has(s.id)&&!s.menuHidden)project.navigation.items.push(s.id);cleanNavigation(project);save();if(redraw)renderAll();else{renderScreensPicker();renderLibrary();refreshPlayer();renderIssues();}}
+function editorSnapshot(){return {project:JSON.stringify(project),screenId,selectedId,selectedVariable,inspectorTab,eventName,libraryTab};}
+function restoreEditor(snapshot){project=JSON.parse(snapshot.project);screenId=project.screens.some(s=>s.id===snapshot.screenId)?snapshot.screenId:project.home;selectedId=findNode(project,snapshot.selectedId)?snapshot.selectedId:null;selectedVariable=project.variables.some(v=>v.name===snapshot.selectedVariable)?snapshot.selectedVariable:null;inspectorTab=snapshot.inspectorTab;eventName=snapshot.eventName;libraryTab=snapshot.libraryTab;save();renderAll();}
+function snapshot(key='',saved){const now=Date.now();if(!key||key!==lastEdit||now-lastEditTime>900){history.push(saved||editorSnapshot());if(history.length>30)history.shift();}lastEdit=key;lastEditTime=now;future=[];}
+function commit(mutator,{redraw=true,key=''}={}){
+ const before=editorSnapshot(),oldHistory=history.slice(),oldFuture=future.slice(),oldEdit=lastEdit,oldTime=lastEditTime;
+ snapshot(key,before);const screens=new Set(project.screens.map(s=>s.id));
+ try{mutator();if(project.navigation?.enabled)for(const s of project.screens)if(!screens.has(s.id)&&!s.menuHidden)project.navigation.items.push(s.id);cleanNavigation(project);}
+ catch(error){history=oldHistory;future=oldFuture;lastEdit=oldEdit;lastEditTime=oldTime;restoreEditor(before);throw error;}
+ save();if(redraw)renderAll();else{renderScreensPicker();renderLibrary();refreshPlayer();renderIssues();}
+}
 function safeGet(object,path){return path.split('.').reduce((value,key)=>['__proto__','constructor','prototype'].includes(key)?undefined:value?.[key],object);}
 function safeSet(object,path,value){const keys=path.split('.');if(keys.some(k=>['__proto__','constructor','prototype'].includes(k)))return;for(const key of keys.slice(0,-1)){if(object[key]===undefined)object[key]={};object=object[key];}object[keys.at(-1)]=value;}
 function selected(){return selectedVariable?project.variables.find(v=>v.name===selectedVariable):findNode(project,selectedId)?.node;}
@@ -48,7 +64,7 @@ function selectInput(path,value,items,extra=''){return `<select class="full" dat
 function input(path,value,type='text',extra=''){return `<input class="full" type="${type}" data-path="${path}" value="${esc(value)}" ${extra}>`;}
 function field(label,content){return `<label class="field-label">${label}</label>${content}`;}
 function variablesOptions(type=null){return [['','— Choisir —'],...project.variables.filter(v=>!type||v.type===type).map(v=>[v.name,v.label||v.name])];}
-function addNode(type,columns=0){if(!columns&&!catalog.some(c=>c.type===type))return;commit(()=>{const info=findNode(project,selectedId),parent=['container','form','accordion'].includes(info?.node.type)?info.node:['container','form','accordion'].includes(info?.parent?.type)?info.parent:null,node=columns?columnLayout(project,columns):component(type,project);(parent?parent.children:currentScreen().nodes).push(node);if(type==='search'){let target;walk(project,(n,s)=>{if(!target&&s.id===screenId&&['list','products','productDetail'].includes(n.type)&&!n.props.searchVariable)target=n;});if(target)target.props.searchVariable=node.props.variable;}if(['list','products','productDetail'].includes(type)){let search;walk(project,(n,s)=>{if(!search&&s.id===screenId&&n.type==='search')search=n;});if(search)node.props.searchVariable=search.props.variable;}selectedId=node.id;selectedVariable=null;inspectorTab='props';eventName=['list','products','productDetail'].includes(node.type)?'item':['input','number','textarea','select','toggle','search','date','range','rating'].includes(node.type)?'change':'click';});}
+function addNode(type,columns=0){if(!columns&&!catalog.some(c=>c.type===type))return;commit(()=>{const info=findNode(project,selectedId),parent=['container','form','accordion'].includes(info?.node.type)?info.node:['container','form','accordion'].includes(info?.parent?.type)?info.parent:null,node=columns?columnLayout(project,columns):component(type,project);const siblings=parent?parent.children:currentScreen().nodes;if(info&&!['container','form','accordion'].includes(info.node.type)&&siblings===info.siblings)siblings.splice(siblings.indexOf(info.node)+1,0,node);else siblings.push(node);if(type==='search'){let target;walk(project,(n,s)=>{if(!target&&s.id===screenId&&['list','products','productDetail'].includes(n.type)&&!n.props.searchVariable)target=n;});if(target)target.props.searchVariable=node.props.variable;}if(['list','products','productDetail'].includes(type)){let search;walk(project,(n,s)=>{if(!search&&s.id===screenId&&n.type==='search')search=n;});if(search)node.props.searchVariable=search.props.variable;}selectedId=node.id;selectedVariable=null;inspectorTab='props';eventName=['list','products','productDetail'].includes(node.type)?'item':['input','number','textarea','select','toggle','search','date','range','rating'].includes(node.type)?'change':'click';});}
 function selectNode(id){selectedId=id;selectedVariable=null;inspectorTab='props';const found=findNode(project,id);if(found){screenId=found.screen.id;eventName=['list','products','productDetail'].includes(found.node.type)?'item':['input','number','textarea','select','toggle','search','date','range','rating'].includes(found.node.type)?'change':'click';}renderInspector();renderLibrary();player?.select(id);}
 function renderScreensPicker(){$('#project-name').value=project.name;$('#screen-picker').innerHTML=project.screens.map(s=>option(s.id,s.name,screenId)).join('');}
 function treeHTML(nodes,depth=0){return nodes.map(n=>`<button class="tree-row ${n.id===selectedId?'active':''}" draggable="true" data-move-node="${n.id}" ${['container','form','accordion'].includes(n.type)?`data-player-drop="${n.id}"`:''} data-select-node="${n.id}" style="padding-left:${8+depth*13}px">${esc(n.name)}<small>${catalog.find(c=>c.type===n.type)?.label||''}</small></button>${treeHTML(n.children||[],depth+1)}`).join('');}
@@ -99,6 +115,11 @@ function actionsUI(list,path,depth=0){
  }).join('');
  return `<div class="action-target" data-action-target="${path}">${cards||'<p class="help">Déposer une action ici</p>'}<select class="add-action-picker" data-insert-action="${path}"><option value="">＋ Ajouter une action</option>${actionTypes.map(([v,l])=>option(v,l,'')).join('')}</select></div>`;
 }
+function imageEditorPreview(props){
+ const src=props.srcVariable?project.variables.find(v=>v.name===props.srcVariable)?.initial:props.src;
+ const valid=typeof src==='string'&&(/^(data:image\/(png|jpeg|webp|gif);base64,)/.test(src)||/^assets\/[a-z0-9-]+\.(jpg|png|webp)$/i.test(src));
+ return valid?`<img class="selected-image" src="${esc(src)}" alt="">`:'<div class="image-empty-preview">Choisis une image ou une donnée image.</div>';
+}
 function renderNodeProps(n){
  let html=field('Nom du composant',input('name',n.name));const x=n.props,defaultBackground=['button','back','badge'].includes(n.type)?project.theme.primary:currentScreen().background,defaultColor=['button','back','badge','input','number','search','date','textarea','select'].includes(n.type)?readableText(n.style.background||(['button','back','badge'].includes(n.type)?project.theme.primary:'#ffffff')):n.style.background?readableText(n.style.background):project.theme.text;
  if(['heading','text','button','back','badge'].includes(n.type))html+=field('Texte',`<textarea data-path="props.text">${esc(x.text)}</textarea>`)+field('Afficher une donnée après le texte',selectInput('props.textVariable',x.textVariable||'',variablesOptions()))+`<details class="advanced"><summary>Texte avec plusieurs données</summary><select class="inline-pick" data-insert-binding="props.text"><option value="">Insérer une donnée…</option>${project.variables.map(v=>option(v.name,v.label||v.name,'')).join('')}</select><p class="help">Les données entre doubles accolades seront remplacées à l’exécution.</p></details>`;
@@ -118,7 +139,7 @@ function renderNodeProps(n){
  if(n.type==='progress')html+=field('Libellé',input('props.label',x.label||''))+field('Donnée à afficher',selectInput('props.variable',x.variable,variablesOptions('number')))+field('Valeur maximale',input('props.max',x.max||100,'number','min="1"'));
  if(n.type==='form'||n.type==='accordion')html+=field('Titre',input('props.title',x.title||''));
  if(n.type==='accordion')html+=`<label class="toggle-row">Ouvert au démarrage<input type="checkbox" data-path="props.open" ${x.open?'checked':''}></label>`;
- if(n.type==='image')html+=`<img class="selected-image" src="${esc((()=>{const src=x.srcVariable?project.variables.find(v=>v.name===x.srcVariable)?.initial:x.src;return typeof src==='string'&&/^(assets\/|data:image\/(png|jpeg|webp|gif);base64,)/.test(src)?src:'';})())}" alt="">${field('Texte alternatif',input('props.alt',x.alt||''))}${field('Hauteur',input('props.height',x.height,'number','min="20" max="1200"'))}${field('Cadrage',selectInput('props.fit',x.fit,[['cover','Remplir'],['contain','Afficher en entier']]))}<div class="asset-bank">${['burger','pizza','sushi','tacos','fries','drink'].map(id=>`<button data-pick-image="assets/${id}.jpg" class="${x.src==='assets/'+id+'.jpg'?'selected':''}"><img src="assets/${id}.jpg" alt="${photoNames[id]}"></button>`).join('')}</div><button class="image-upload-button" data-upload-image>Importer une image</button>`;
+ if(n.type==='image')html+=imageEditorPreview(x)+`${field('Texte alternatif',input('props.alt',x.alt||''))}${field('Hauteur',input('props.height',x.height,'number','min="20" max="1200"'))}${field('Cadrage',selectInput('props.fit',x.fit,[['cover','Remplir'],['contain','Afficher en entier']]))}<div class="asset-bank">${['burger','pizza','sushi','tacos','fries','drink'].map(id=>`<button data-pick-image="assets/${id}.jpg" class="${x.src==='assets/'+id+'.jpg'?'selected':''}"><img src="assets/${id}.jpg" alt="${photoNames[id]}"></button>`).join('')}</div><button class="image-upload-button" data-upload-image>Importer une image</button>`;
 
  if(n.type==='container'){
   html+=field('Disposition',selectInput('props.direction',x.direction,[['column','Empilés'],['row','Côte à côte'],['grid','En colonnes']]))+field('Espacement entre éléments',input('style.gap',n.style.gap,'number','min="0" max="100"'));
@@ -137,6 +158,7 @@ function renderNodeProps(n){
   html+='<details class="advanced"><summary>Relier les champs de la liste</summary>'+field('Champ du nom',selectInput('props.nameField',x.nameField,choices))+field('Champ du prix',selectInput('props.priceField',x.priceField,choices))+field('Champ de l’image',selectInput('props.imageField',x.imageField,choices))+'</details>';
  }
  if(n.type==='cart')html+=field('Frais de livraison',input('props.delivery',x.delivery,'number','min="0" step="0.1"'))+field('Livraison offerte dès (0 : désactivé)',input('props.freeAt',x.freeAt,'number','min="0" step="1"'))+field('Donnée contenant la réduction',selectInput('props.discountVariable',x.discountVariable,variablesOptions('number')))+field('Texte du bouton',input('props.checkout',x.checkout));
+ html+=field('Ranger dans',`<select class="full" data-move-parent>${containerTargets(project,n.id,screenId).map(([v,l])=>option(v,l,findNode(project,n.id)?.parent?.id||'root')).join('')}</select>`);
  html+='<hr class="mini-divider"><div class="section-label">Apparence</div><div class="form-row">'+field('Taille du texte',input('style.fontSize',n.style.fontSize,'number','min="8" max="72"'))+field('Alignement',selectInput('style.align',n.style.align,[['left','Gauche'],['center','Centre'],['right','Droite']]))+'</div>';
  html+='<div class="form-row">'+field('Couleur du texte',input('style.color',n.style.color||defaultColor,'color'))+field('Couleur du fond',input('style.background',n.style.background||defaultBackground,'color'))+'</div>';
  html+='<details class="advanced"><summary>Dimensions et affichage</summary><div class="form-row">'+field('Marge intérieure',input('style.padding',n.style.padding,'number','min="0" max="100"'))+field('Largeur',selectInput('style.width',n.style.width,['100%','75%','50%','auto']))+'</div>'+field('Arrondi',input('style.radius',n.style.radius??project.theme.radius,'number','min="0" max="80"'))+field('Afficher seulement si cette donnée est vraie',selectInput('props.visibleVariable',x.visibleVariable||'',variablesOptions()))+'</details>';
@@ -150,13 +172,13 @@ function variableEditor(v){
  else if(v.type==='boolean')html+=field('Valeur initiale',selectInput('initial',String(v.initial),[['true','Vrai'],['false','Faux']],'data-boolean="true"'));
  else if(v.type==='text')html+=field('Valeur initiale',`<textarea data-path="initial">${esc(v.initial)}</textarea>`);
  else{
-  html+='<hr class="mini-divider"><div class="section-label">Champs des éléments</div>'+(v.fields||[]).map((f,i)=>`<div class="form-row"><input value="${esc(f.label||f.name)}" data-column-label="${i}"><button class="outline-button" data-delete-column="${i}">Retirer</button></div>`).join('')+`<div class="form-row"><input id="new-column-name" placeholder="nom, prix, image…"><select id="new-column-type"><option value="text">Texte</option><option value="number">Nombre</option><option value="image">Image</option><option value="boolean">Oui / non</option></select></div><button class="outline-button" data-add-column style="margin-top:7px">＋ Champ</button>`;
+  html+='<hr class="mini-divider"><div class="section-label">Champs des éléments</div>'+(v.fields||[]).map((f,i)=>`<div class="form-row"><input value="${esc(f.label||f.name)}" data-column-label="${i}"><select data-column-type="${i}" aria-label="Type du champ ${esc(f.label||f.name)}">${[['text','Texte'],['number','Nombre'],['boolean','Oui / non'],['image','Image']].map(([v,l])=>option(v,l,f.type)).join('')}</select><button class="outline-button" data-delete-column="${i}">Retirer</button></div>`).join('')+`<div class="form-row"><input id="new-column-name" placeholder="nom, prix, image…"><select id="new-column-type"><option value="text">Texte</option><option value="number">Nombre</option><option value="image">Image</option><option value="boolean">Oui / non</option></select></div><button class="outline-button" data-add-column style="margin-top:7px">＋ Champ</button>`;
   html+='<hr class="mini-divider"><div class="section-label">Éléments initiaux</div>'+v.initial.map((item,i)=>`<div class="record"><div class="record-heading"><span>Élément ${i+1}</span><button class="record-delete" data-delete-record="${i}">✕</button></div>${(v.fields||[]).length?(v.fields||[]).map(f=>field(esc(f.label||f.name),f.type==='image'?`<select data-record-field="${i}" data-record-key="${esc(f.name)}">${[['','Aucune image'],...(String(item?.[f.name]||'').startsWith('data:image/')?[[item[f.name],'Image importée']]:[]),...['burger','pizza','sushi','tacos','fries','drink'].map(id=>['assets/'+id+'.jpg',photoNames[id]])].map(([value,label])=>option(value,label,item?.[f.name])).join('')}</select><button class="image-upload-button" data-upload-record="${i}" data-record-key="${esc(f.name)}">Importer une image</button>`:f.type==='boolean'?`<select data-record-field="${i}" data-record-key="${esc(f.name)}" data-record-type="boolean">${option('true','Vrai',String(item?.[f.name]))}${option('false','Faux',String(item?.[f.name]))}</select>`:`<input type="${f.type==='number'?'number':'text'}" data-record-field="${i}" data-record-key="${esc(f.name)}" value="${esc(item?.[f.name]??'')}" step="any">`)).join(''):`<input data-record-field="${i}" value="${esc(typeof item==='object'?JSON.stringify(item):item)}">`}</div>`).join('')+'<button class="outline-button" data-add-record>＋ Élément</button>';
  }
  return html+'<div class="prop-actions"><button class="danger" data-delete-variable>Supprimer la variable</button></div>';
 }
 function renderInspector(){
- const n=selected();$('#props-tab').classList.toggle('active',inspectorTab==='props');$('#events-tab').classList.toggle('active',inspectorTab==='actions');$('#events-tab').disabled=!!selectedVariable||!n;
+ const n=selected();$('#selection-tools').hidden=!selectedId||!n||inspectorTab!=='props';$('#props-tab').classList.toggle('active',inspectorTab==='props');$('#events-tab').classList.toggle('active',inspectorTab==='actions');$('#events-tab').disabled=!!selectedVariable||!n;
  $('#theme-tab').classList.toggle('active',inspectorTab==='theme');
  let html='';
  if(inspectorTab==='theme'){
@@ -176,7 +198,7 @@ function renderInspector(){
   html=field('Nom de l’écran',`<input class="full" data-screen-prop="name" value="${esc(currentScreen().name)}">`)+field('Fond de l’écran',`<input class="full" type="color" data-screen-prop="background" value="${esc(currentScreen().background||project.theme.background)}">`)+`<button class="outline-button" data-set-home style="margin-top:15px">${project.home===screenId?'⌂ Écran de démarrage':'Définir comme écran de démarrage'}</button><hr class="mini-divider"><div class="section-label">Apparence de l’application</div>`+field('Couleur principale',`<input class="full" type="color" data-theme-prop="primary" value="${project.theme.primary}">`)+field('Couleur du texte',`<input class="full" type="color" data-theme-prop="text" value="${project.theme.text}">`)+field('Arrondi des boutons',`<input class="full" type="number" min="0" max="60" data-theme-prop="radius" value="${project.theme.radius}">`)+`<div class="prop-actions"><button data-duplicate-screen>Dupliquer l’écran</button><button data-delete-screen class="danger" ${project.screens.length===1?'disabled':''}>Supprimer l’écran</button></div>`;
  }
  if(!n&&!selectedVariable&&inspectorTab!=='theme')html+=`<details class="advanced" ${project.navigation?.enabled?'open':''}><summary>Nom et icône dans le menu</summary>${field('Nom court',`<input class="full" data-screen-prop="menuLabel" placeholder="${esc(currentScreen().name)}" value="${esc(currentScreen().menuLabel||'')}">`)}${field('Icône',`<select class="full" data-screen-prop="menuIcon">${[['','Automatique'],['⌂','Maison'],['▦','Grille'],['♥','Cœur'],['★','Étoile'],['☷','Liste'],['●','Rond'],['＋','Plus'],['☺','Profil'],['▣','Panier']].map(([v,l])=>option(v,(v?v+' ':'')+l,currentScreen().menuIcon||'')).join('')}</select>`)}</details>`;
- $('#inspector-content').innerHTML=html;
+ if(n&&selectedId&&inspectorTab==='props'){const crumbs=[];let entry=findNode(project,selectedId);while(entry){crumbs.unshift({id:entry.node.id,name:entry.node.name});entry=entry.parent?findNode(project,entry.parent.id):null;}html=`<div class="selection-crumbs"><button data-select-root>${esc(currentScreen().name)}</button>${crumbs.map(c=>`<span>›</span><button data-select-node="${c.id}">${esc(c.name)}</button>`).join('')}</div>`+html;}$('#inspector-content').innerHTML=html;
 }
 function issues(){return projectIssues(project);}
 function renderIssues(){const list=issues();$('#issues-button').textContent=list.length?list.length+' liaison'+(list.length>1?'s':'')+' à vérifier':'';$('#issues-button').className=list.length?'warning':'';}
@@ -190,6 +212,7 @@ function insertAction(type,path=null){const n=findNode(project,selectedId)?.node
 function addScreen(){commit(()=>{const s={id:uid('screen'),name:'Écran '+(project.screens.length+1),background:project.theme.background,nodes:[]};project.screens.push(s);screenId=s.id;selectedId=selectedVariable=null;});}
 function mutateProperty(input,redraw=false){const target=selected();if(!target)return;const path=input.dataset.path;let next=input.type==='checkbox'?input.checked:input.type==='number'?Number(input.value):input.dataset.boolean==='true'?input.value==='true':input.value;if(input.type==='number'){if(!Number.isFinite(next))return;if(input.min!=='')next=Math.max(Number(input.min),next);if(input.max!=='')next=Math.min(Number(input.max),next);}
  commit(()=>{
+  if(selectedVariable&&path==='label')delete target.autoLabelFrom;
   if(input.dataset.operandKind){next=operand(next,next==='variable'?project.variables[0]?.name||'':'');if(next.kind==='math')next=operand('math');safeSet(target,input.dataset.operandKind,next);}
   else {safeSet(target,path,next);if(path==='props.columns'&&target.props.columnLayout){const count=Number(next);while(target.children.length<count){const c=component('container',project);c.name='Colonne '+(target.children.length+1);c.style.padding=4;target.children.push(c);}}if(path==='props.variable'&&['products','productDetail'].includes(target.type)){const fields=project.variables.find(v=>v.name===next)?.fields||[];target.props.nameField=fields.find(f=>f.type==='text')?.name||'name';target.props.priceField=fields.find(f=>f.type==='number')?.name||'price';target.props.imageField=fields.find(f=>f.type==='image')?.name||'image';}if(path==='props.variable'&&target.type==='list'){const f=project.variables.find(v=>v.name===next)?.fields?.find(f=>f.type==='text');target.props.itemText=f?'{{item.'+f.name+'}}':'{{item}}';}}
  },{redraw:redraw||!!input.dataset.operandKind,key:(selectedVariable||selectedId)+'.'+path});
@@ -214,6 +237,8 @@ document.addEventListener('change',event=>{
  if(el.dataset.projectName){try{const name=el.value.trim()||'Mon application';if(el.dataset.projectName===project.id)commit(()=>project.name=name,{redraw:false});else{const record=listProjects(localStorage).find(r=>r.project.id===el.dataset.projectName);if(record){record.project.name=name;archiveProject(localStorage,record.project);}}renderProjectLibrary();}catch(error){projectError(error);}return;}
  if(el.id==='component-category'){componentCategory=el.value;renderLibrary();return;}
  if(el.tagName==='SELECT'&&el.dataset.themeProp){commit(()=>project.theme[el.dataset.themeProp]=el.value);return;}
+ if(el.dataset.columnType!==undefined){const v=selected(),index=Number(el.dataset.columnType),previous=v?.fields?.[index]?.type;try{commit(()=>{changeListFieldType(v,index,el.value);connectListFields(project,v);});}catch(error){el.value=previous;$('#canvas-status').textContent=error.message;}return;}
+ if(el.dataset.moveParent!==undefined){commit(()=>moveNode(project,selectedId,el.value,screenId));return;}
  if(el.dataset.buttonNavigation!==undefined){const n=selected();if(!n)return;commit(()=>{n.events.click=n.events.click.filter(a=>!['navigate','back'].includes(a.type));if(el.value==='back')n.events.click.push({type:'back'});else if(project.screens.some(s=>s.id===el.value))n.events.click.push({type:'navigate',screen:el.value});});return;}
  if(el.tagName==='SELECT'&&el.dataset.screenProp){commit(()=>currentScreen()[el.dataset.screenProp]=el.value,{redraw:false});return;}
  if(el.tagName==='SELECT'&&el.dataset.navigationProp){commit(()=>setNavigation(project,{[el.dataset.navigationProp]:el.value}));return;}
@@ -228,10 +253,13 @@ document.addEventListener('click',event=>{
  if(b.hasAttribute('data-use-app-style')){const n=selected();if(n)commit(()=>{n.style.color='';n.style.background='';delete n.style.radius;});return;}
  if(b.dataset.themePreset){commit(()=>applyThemePreset(project,b.dataset.themePreset));return;}
  if(b.dataset.editData){selectedVariable=b.dataset.editData;selectedId=null;libraryTab='data';inspectorTab='props';renderAll();return;}
- if(b.hasAttribute('data-create-detail')){const n=selected();if(n?.type!=='products')return;if(n.events.item.some(a=>a.type!=='cartAdd')&&!confirm('Relier ce catalogue à une nouvelle fiche ? Ses actions actuelles sur les articles seront remplacées.'))return;commit(()=>{const result=createProductDetails(project,n.id);screenId=result.screen.id;selectedId=result.node.id;selectedVariable=null;eventName='item';inspectorTab='props';libraryTab='screens';mode='design';});return;}
+ if(b.hasAttribute('data-create-detail')){const n=selected();if(n?.type!=='products')return;if(n.events.item.some(a=>a.type!=='cartAdd')&&!confirm('Relier ce catalogue à une nouvelle fiche ? Ses actions actuelles sur les articles seront remplacées.'))return;try{commit(()=>{const result=createProductDetails(project,n.id);screenId=result.screen.id;selectedId=result.node.id;selectedVariable=null;eventName='item';inspectorTab='props';libraryTab='screens';mode='design';});}catch(error){$('#canvas-status').textContent=error.message;}return;}
+ if(b.dataset.recoverCopy){const copy=listRecoveries(localStorage).find(c=>c.key===b.dataset.recoverCopy);if(copy)download(copy.raw,'application/json','copie-a-recuperer.json');return;}
+ if(b.dataset.deleteRecovery){if(b.dataset.deleteRecovery.startsWith(recoveryPrefix)&&confirm('Supprimer cette copie de récupération ? Télécharge-la d’abord si tu veux la garder.')){localStorage.removeItem(b.dataset.deleteRecovery);renderProjectLibrary();}return;}
  if(b.dataset.projectOpen){const record=listProjects(localStorage).find(r=>r.project.id===b.dataset.projectOpen);if(record&&activateProject(record.project))$('#projects-dialog').close();return;}
  if(b.dataset.projectCopy){const source=b.dataset.projectCopy===project.id?project:listProjects(localStorage).find(r=>r.project.id===b.dataset.projectCopy)?.project;if(source){const copy=structuredClone(source);copy.id=uid('app');copy.name+=' copie';if(activateProject(copy))$('#projects-dialog').close();}return;}
  if(b.dataset.projectDelete){if(!confirm('Supprimer cette application de cet ordinateur ?'))return;try{removeProject(localStorage,b.dataset.projectDelete,project.id);renderProjectLibrary();}catch(error){projectError(error);}return;}
+ if(b.hasAttribute('data-select-root')){selectedId=selectedVariable=null;inspectorTab='props';renderAll();return;}
  if(b.dataset.tab){libraryTab=b.dataset.tab;renderLibrary();return;}
  if(b.hasAttribute('data-open-navigation')){commit(()=>{libraryTab='screens';setNavigation(project,{enabled:true});});document.querySelector('.navigation-config')?.scrollIntoView({block:'start'});return;}
  if(b.dataset.screenModel){commit(()=>{screenId=addScreenTemplate(project,b.dataset.screenModel).id;selectedId=selectedVariable=null;mode='design';});return;}
@@ -256,7 +284,7 @@ document.addEventListener('click',event=>{
  if(b.hasAttribute('data-delete-screen')){if(project.screens.length<2||!confirm('Supprimer cet écran et ses composants ?'))return;commit(()=>{project.screens=project.screens.filter(s=>s.id!==screenId);if(project.home===screenId)project.home=project.screens[0].id;screenId=project.screens[0].id;selectedId=null;});return;}
  if(b.hasAttribute('data-add-record')){commit(()=>{const v=selected(),fields=v.fields||[];v.initial.push(fields.length?Object.fromEntries(fields.map(f=>[f.name,f.type==='number'?0:f.type==='boolean'?false:''])):'Nouvel élément');});return;}
  if(b.dataset.deleteRecord!==undefined){commit(()=>selected().initial.splice(Number(b.dataset.deleteRecord),1));return;}
- if(b.hasAttribute('data-add-column')){const label=$('#new-column-name').value.trim(),name=label.normalize('NFD').replace(/[\u0300-\u036f]/g,'').replace(/[^a-zA-Z0-9_]+/g,'_'),type=$('#new-column-type').value;if(!/^[a-zA-Z_]\w*$/.test(name)||['__proto__','constructor','prototype'].includes(name)){ $('#canvas-status').textContent='Donne un nom à ce champ.';return;}if(selected().fields.some(f=>f.name===name))return;commit(()=>{const v=selected();v.fields.push({name,label,type});v.initial=v.initial.map(item=>({...typeof item==='object'&&item!==null?item:{},[name]:type==='number'?0:type==='boolean'?false:''}));});return;}
+ if(b.hasAttribute('data-add-column')){const label=$('#new-column-name').value.trim(),name=label.normalize('NFD').replace(/[\u0300-\u036f]/g,'').replace(/[^a-zA-Z0-9_]+/g,'_'),type=$('#new-column-type').value;if(!/^[a-zA-Z_]\w*$/.test(name)||['__proto__','constructor','prototype'].includes(name)){ $('#canvas-status').textContent='Donne un nom à ce champ.';return;}if(selected().fields.some(f=>f.name===name))return;commit(()=>{const v=selected();addListField(v,{name,label,type});connectListFields(project,v);});return;}
  if(b.dataset.deleteColumn!==undefined){commit(()=>{const v=selected(),[f]=v.fields.splice(Number(b.dataset.deleteColumn),1);for(const row of v.initial)if(row&&typeof row==='object')delete row[f.name];});return;}
  if(b.hasAttribute('data-delete-variable')){if(!confirm('Supprimer cette variable ? Les composants liés devront être reconfigurés.'))return;commit(()=>{project.variables=project.variables.filter(v=>v.name!==selectedVariable);selectedVariable=null;});return;}
  if(b.hasAttribute('data-rename-variable')){const previous=selectedVariable,next=prompt('Nouvel identifiant de la variable',previous);if(!next||!/^\w+$/.test(next)||['__proto__','constructor','prototype'].includes(next)||project.variables.some(v=>v.name===next))return;commit(()=>{const visit=obj=>{if(!obj||typeof obj!=='object')return;for(const [k,v]of Object.entries(obj)){if(typeof v==='string'){if(['variable','discountVariable','visibleVariable','textVariable'].includes(k)&&v===previous||['variable','length','cartTotal'].includes(obj.kind)&&k==='name'&&v===previous)obj[k]=next;else obj[k]=v.replaceAll('{{'+previous+'}}','{{'+next+'}}').replaceAll('{{'+previous+'.','{{'+next+'.');}else visit(v);}};selected().name=next;visit(project);selectedVariable=next;});return;}
@@ -283,12 +311,22 @@ document.addEventListener('drop',event=>{
 });
 $('#props-tab').onclick=()=>{inspectorTab='props';renderInspector();};$('#events-tab').onclick=()=>{inspectorTab='actions';eventName=['list','products','productDetail'].includes(selected()?.type)?'item':['input','number','textarea','select','toggle','search','date','range','rating'].includes(selected()?.type)?'change':'click';renderInspector();};
 $('#theme-tab').onclick=()=>{inspectorTab='theme';renderInspector();};
-$('#deselect').onclick=()=>{selectedId=selectedVariable=null;renderInspector();player.select('');};
+$('#deselect').onclick=()=>{selectedId=selectedVariable=null;inspectorTab='props';renderAll();};
 $('#screen-picker').onchange=event=>{screenId=event.target.value;selectedId=selectedVariable=null;renderAll();};$('#add-screen').onclick=addScreen;
 $('#design-mode').onclick=()=>{mode='design';if(findNode(project,selectedId)?.screen.id!==screenId)selectedId=null;renderAll();};$('#test-mode').onclick=()=>{mode='test';refreshPlayer();};$('#reset-test').onclick=()=>{player.reset();screenId=project.home;renderScreensPicker();};
-$('#undo').onclick=()=>{if(!history.length)return;lastEdit='';future.push(JSON.stringify(project));project=JSON.parse(history.pop());if(!project.screens.some(s=>s.id===screenId))screenId=project.home;if(!findNode(project,selectedId))selectedId=null;if(!project.variables.some(v=>v.name===selectedVariable))selectedVariable=null;save();renderAll();};
-$('#redo').onclick=()=>{if(!future.length)return;lastEdit='';history.push(JSON.stringify(project));project=JSON.parse(future.pop());if(!project.screens.some(s=>s.id===screenId))screenId=project.home;save();renderAll();};
-document.addEventListener('keydown',event=>{if((event.ctrlKey||event.metaKey)&&event.key.toLowerCase()==='z'&&!['INPUT','TEXTAREA'].includes(document.activeElement.tagName)){event.preventDefault();(event.shiftKey?$('#redo'):$('#undo')).click();}});
+$('#undo').onclick=()=>{if(!history.length)return;lastEdit='';future.push(editorSnapshot());restoreEditor(history.pop());};
+$('#redo').onclick=()=>{if(!future.length)return;lastEdit='';history.push(editorSnapshot());restoreEditor(future.pop());};
+document.addEventListener('keydown',event=>{
+ if(['INPUT','TEXTAREA','SELECT'].includes(document.activeElement.tagName)||document.activeElement.isContentEditable||document.querySelector('dialog[open]'))return;
+ if((event.ctrlKey||event.metaKey)&&event.key.toLowerCase()==='z'){event.preventDefault();(event.shiftKey?$('#redo'):$('#undo')).click();return;}
+ if(mode!=='design'||!selectedId||inspectorTab!=='props'||event.repeat)return;
+ const operation=(event.ctrlKey||event.metaKey)&&event.key.toLowerCase()==='d'?'duplicate':event.key==='Delete'?'delete':event.altKey&&event.key==='ArrowUp'?'up':event.altKey&&event.key==='ArrowDown'?'down':null;
+ if(operation){event.preventDefault();$('#selection-tools [data-node-op="'+operation+'"]').click();}
+});
+function hideRecoveryBanner(){$('#recovery-banner').hidden=true;document.body.classList.remove('with-recovery');}
+$('#recover-project').onclick=()=>{if(!recovery)return;download(recovery.raw,'application/json','ancienne-application.json');recovery.blocked=false;hideRecoveryBanner();save();};
+$('#dismiss-recovery').onclick=()=>{if(!recovery?.blocked)hideRecoveryBanner();};
+if(recovery){$('#recovery-banner').hidden=false;document.body.classList.add('with-recovery');$('#dismiss-recovery').disabled=recovery.blocked;}
 $('#new-project').onclick=()=>{$('#new-project-error').hidden=true;$('#new-dialog').showModal();};
 $('#projects').onclick=()=>{$('#projects-error').hidden=true;try{archiveProject(localStorage,project);}catch(error){projectError(error);}renderProjectLibrary();$('#projects-dialog').showModal();};
 $('#projects-new').onclick=()=>{$('#projects-dialog').close();$('#new-project').click();};
@@ -296,8 +334,25 @@ let previewPlayer;
 $('#preview-app').onclick=()=>{const root=document.createElement('main');root.className='app-player';$('#preview-host').replaceChildren(root);$('#preview-dialog').showModal();previewPlayer=createPlayer(root,project);};
 $('#preview-reset').onclick=()=>previewPlayer?.reset();
 $('#preview-dialog').addEventListener('close',()=>{$('#preview-host').replaceChildren();previewPlayer=null;});
-function showState(title,data){$('#state-title').textContent=title;$('#state-content').textContent=JSON.stringify(data,(_,value)=>typeof value==='string'&&value.startsWith('data:image/')?'[Image importée]':value,2);$('#state-dialog').showModal();}
-$('#test-state').onclick=()=>showState('État du test',lastState);$('#issues-button').onclick=()=>showState('Liaisons à vérifier',issues());
+function presentData(value,fields=[],depth=0){
+ if(value===undefined||value===null)return '<span class="data-empty">Non renseigné</span>';
+ if(typeof value==='boolean')return value?'Oui':'Non';
+ if(typeof value==='number')return esc(value.toLocaleString('fr-FR'));
+ if(typeof value==='string')return value.startsWith('data:image/')?'Image importée':value?esc(value):'<span class="data-empty">Vide</span>';
+ if(depth>3)return 'Données imbriquées';
+ if(Array.isArray(value))return `<details><summary>${value.length} élément${value.length>1?'s':''}</summary><ol>${value.slice(0,20).map(item=>`<li>${presentData(item,fields,depth+1)}</li>`).join('')}</ol>${value.length>20?'<small>20 premiers éléments affichés.</small>':''}</details>`;
+ return `<dl>${Object.entries(value).map(([key,v])=>`<dt>${esc(fields.find(f=>f.name===key)?.label||key)}</dt><dd>${presentData(v,[],depth+1)}</dd>`).join('')}</dl>`;
+}
+function showState(title,data){
+ $('#state-title').textContent=title;
+ if(Array.isArray(data))$('#state-content').innerHTML=data.length?`<ul class="issues-list">${data.map(message=>`<li>${esc(message)}</li>`).join('')}</ul>`:'<p>Aucune liaison cassée détectée.</p>';
+ else{
+  const state=describeTestState(project,data);
+  $('#state-content').innerHTML=(state.variables.length?`<table class="test-data-table"><thead><tr><th>Donnée</th><th>Valeur pendant le test</th></tr></thead><tbody>${state.variables.map(v=>`<tr><th>${esc(v.label)}</th><td>${presentData(v.value,v.fields)}</td></tr>`).join('')}</tbody></table>`:'<p>Cette application ne contient pas encore de données.</p>')+(state.actions.length?`<h3>Dernières actions</h3><ol class="action-trace">${state.actions.map(a=>`<li><strong>${esc(a.label)}</strong>${a.variable?' · '+esc(a.variable):''}${a.branch?' · '+esc(a.branch):''}<small>${esc(a.screen)}</small></li>`).join('')}</ol>`:'')+`<details class="advanced"><summary>Vue technique</summary><pre>${esc(JSON.stringify(data,(_,value)=>typeof value==='string'&&value.startsWith('data:image/')?'[Image importée]':value,2))}</pre></details>`;
+ }
+ $('#state-dialog').showModal();
+}
+$('#test-state').onclick=()=>showState('Données pendant le test',lastState);$('#issues-button').onclick=()=>showState('Liaisons à vérifier',issues());
 function download(content,type,name){const url=URL.createObjectURL(new Blob([content],{type})),a=document.createElement('a');a.href=url;a.download=name;a.click();setTimeout(()=>URL.revokeObjectURL(url),1000);}
 $('#backup').onclick=()=>download(JSON.stringify(project,null,2),'application/json',(project.name||'project')+'.json');$('#import').onclick=()=>$('#import-file').click();
 $('#import-file').onchange=async event=>{const file=event.target.files[0];if(!file)return;try{if(file.size>30*1024*1024)throw Error('Ce fichier est trop volumineux.');const next=JSON.parse(await file.text());if(!validateProject(next))throw Error('Choisis un projet JSON de cet éditeur.');activateProject(next,{undoable:true});}catch(error){$('#save-status').textContent=error instanceof SyntaxError?'Ce fichier ne contient pas un projet JSON valide.':error.message;}finally{event.target.value='';}};

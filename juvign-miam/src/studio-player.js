@@ -49,7 +49,7 @@ export function createPlayer(root,project,options={}){
   if(a.type==='back')back();
   if(a.type==='validate')validateFields(a.form);
   if(a.type==='toast')showNotice(template(value(a.value,context),context),true);
-  if(a.type==='if'){const matches=(a.conditions||[]).map(c=>condition(c,context));run((matches.length&&(a.join==='or'?matches.some(Boolean):matches.every(Boolean)))?a.then:a.else,context,depth+1);}
+  if(a.type==='if'){const matches=(a.conditions||[]).map(c=>condition(c,context)),result=!!(matches.length&&(a.join==='or'?matches.some(Boolean):matches.every(Boolean)));log.push({action:'if',result,screen});run(result?a.then:a.else,context,depth+1);}
   if(a.type==='cartAdd'){
    const list=read(a.variable);if(!Array.isArray(list)||!context.item)throw Error('Cette action utilise un article de catalogue et une liste panier.');
    const item=context.item,props=context.node?.props||{},source=props.identityVariable||props.variable||context.node?.id||'item',id=source+':'+productKey(item,props),qty=Math.max(1,numeric(a.quantity,1));
@@ -58,7 +58,7 @@ export function createPlayer(root,project,options={}){
    const next=clone(list);if(foundIndex>=0){next[foundIndex].id=id;next[foundIndex].quantity=numeric(next[foundIndex].quantity)+qty;}else next.push({id,name,price,image,quantity:qty});write(a.variable,next);
   }
   if(a.type==='reset')for(const v of p.variables)state[v.name]=clone(v.initial);
-  log.push({action:a.type,variable:a.variable||'',screen});if(log.length>50)log.shift();
+  if(a.type!=='if')log.push({action:a.type,variable:a.variable||'',screen});if(log.length>50)log.shift();
  }}
  function initial(restore=true){state=Object.fromEntries(p.variables.map(v=>[v.name,clone(v.initial)]));if(restore&&options.persist){try{const saved=JSON.parse(localStorage.getItem('studio-app-'+p.id));if(saved&&typeof saved==='object'&&!Array.isArray(saved))for(const v of p.variables)if(Object.hasOwn(saved,v.name)&&v.type!=='computed'&&(v.type==='list'?Array.isArray(saved[v.name]):v.type==='number'?typeof saved[v.name]==='number'&&Number.isFinite(saved[v.name]):typeof saved[v.name]===typeof v.initial))state[v.name]=clone(saved[v.name]);}catch{}}}
  function stateSnapshot(){const output=clone(state);for(const v of p.variables)if(v.type==='computed')output[v.name]=clone(read(v.name));return output;}
@@ -164,7 +164,7 @@ export function createPlayer(root,project,options={}){
   else if(active){const input=[...root.querySelectorAll('[data-input]')].find(el=>el.dataset.input===active);if(input){input.focus();try{input.setSelectionRange(position,end);}catch{}}}
  }
  root.addEventListener('click',event=>{
-  if(design){const node=event.target.closest('[data-player-node]');if(node){event.preventDefault();event.stopPropagation();selected=node.dataset.playerNode;render();options.onSelect?.(selected);}return;}
+  if(design){const node=event.target.closest('[data-player-node]');if(node){event.preventDefault();event.stopPropagation();selected=node.dataset.playerNode;render();options.onSelect?.(selected);}else if(!event.target.closest('button')){selected='';options.onSelect?.('');}return;}
   const button=event.target.closest('button');if(button?.disabled)return;
   if(!button){
    try{
@@ -217,4 +217,6 @@ export const playerCSS=`
 .rt-product-detail{display:flex;flex-direction:column;gap:15px}.rt-detail-image{display:block;width:100%;height:230px;object-fit:cover;border-radius:var(--node-radius,var(--app-radius))}.rt-product-detail h3{font-size:1.65em;margin:0;line-height:1.2}.rt-product-detail p{margin:0;font-size:inherit;line-height:1.6;white-space:pre-wrap}.rt-detail-price{font-size:1.4em}.rt-product-detail .rt-button{font-size:inherit}
 
 .app-player[data-has-tabs="true"]>.rt-notice{bottom:calc(76px + env(safe-area-inset-bottom,0px))}
+
+.rt-cart-row button{width:44px;height:44px}.rt-small,.rt-remove{min-height:44px}.rt-remove{min-width:44px}.rt-rating button{min-width:44px;min-height:44px}.rt-label input,.rt-label select{min-height:44px}.rt-notice{padding-right:54px;max-height:45%;overflow:auto;min-height:50px}.rt-notice button{width:44px;height:44px;top:3px;right:3px;padding:8px}.rt-drawer nav button b{min-width:0;overflow-wrap:anywhere}
 `;

@@ -11,7 +11,7 @@ export function variable(p,name,type='text',initial=''){
  let unique=name.replace(/[^a-zA-Z0-9_]/g,'')||'data';if(!/^[a-zA-Z_]/.test(unique))unique='data'+unique;
  if(['__proto__','constructor','prototype'].includes(unique))unique='data_'+unique;
  const base=unique;let n=2;while(p.variables.some(v=>v.name===unique))unique=base+n++;
- const labels={input:'Texte saisi',number:'Nombre',enabled:'Interrupteur',items:'Ma liste',products:'Mes produits',cart:'Mon panier'};
+ const labels={input:'Texte saisi',number:'Nombre',enabled:'Interrupteur',items:'Ma liste',products:'Mes produits',article:'Mon article',search:'Recherche',progress:'Progression',cart:'Mon panier'};
  const sample=type==='list'&&Array.isArray(initial)?initial.find(x=>x&&typeof x==='object'&&!Array.isArray(x)):null;
  const v={name:unique,label:(labels[name]||name)+(unique!==base?' '+unique.slice(base.length):''),type,initial,fields:sample?Object.keys(sample).map(name=>({name,label:({name:'Nom',price:'Prix',image:'Photo',quantity:'Quantité'})[name]||name,type:typeof sample[name]==='number'?'number':typeof sample[name]==='boolean'?'boolean':typeof sample[name]==='string'&&/^(assets\/|data:image\/)/.test(sample[name])?'image':'text'})):[]};p.variables.push(v);return v;
 }
@@ -27,6 +27,7 @@ export function component(type,p){
  if(type==='range')Object.assign(node.props,{label:'Valeur',min:0,max:100,step:1});
  if(type==='rating')Object.assign(node.props,{label:'Ton avis',max:5});
  if(type==='progress'){const v=variable(p,'progress','number',0);Object.assign(node.props,{label:'Progression',variable:v.name,max:100});}
+ if(['input','number','textarea','select','toggle','date','search','range','rating','progress'].includes(type)){const v=p.variables.find(v=>v.name===node.props.variable);v.autoLabelFrom=node.id;v.label=node.props.label||v.label;}
  if(type==='badge')node.props.text='Nouveau';
  if(type==='accordion')Object.assign(node.props,{title:'En savoir plus',open:false});
  if(type==='form'){

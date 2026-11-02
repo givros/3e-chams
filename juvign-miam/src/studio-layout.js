@@ -15,3 +15,8 @@ export function moveNode(project,nodeId,destinationId,screenId){
  source.siblings.splice(source.siblings.indexOf(source.node),1);
  (target?target.node.children:screen.nodes).push(source.node);return true;
 }
+export function containerTargets(project,nodeId,screenId){
+ const result=[['root','Écran (hors groupe)']],screen=project.screens.find(s=>s.id===screenId);
+ const visit=(nodes,path=[])=>{for(const n of nodes){if(n.id===nodeId)continue;const name=[...path,n.name];if(['container','form','accordion'].includes(n.type))result.push([n.id,name.join(' › ')]);visit(n.children||[],name);}};
+ if(screen)visit(screen.nodes);return result;
+}
