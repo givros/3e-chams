@@ -22,6 +22,9 @@ try{
  const suites=[['player-browser-audit','runAudit'],['navigation-browser-audit','runNavigationAudit'],['extended-components-browser-audit','runExtendedAudit'],['theme-browser-audit','runThemeAudit'],['templates-browser-audit','runTemplateAudit'],['detail-browser-audit','runDetailAudit'],['images-browser-audit','runImageAudit'],['mobile-flow-browser-audit','runMobileFlowAudit'],['icons-browser-audit','runIconAudit'],['camera-browser-audit','runCameraAudit']];
  let total=0;
  for(const [file,run]of suites){const result=await page.evaluate(async([file,run])=>(await import(`/tests/${file}.js`))[run](),[file,run]);console.log(`${file}: ${result.passed}/${result.total}`);if(result.failed.length)throw Error(JSON.stringify(result.failed));total+=result.total;}
+ await page.locator('[data-add-component="image"]').click();await page.locator('[data-photo-category]').selectOption('nature');await page.locator('[data-photo-search]').fill('foret');
+ if(await page.locator('[data-pick-image]:visible').count()!==1)throw Error('Photo search or category filter failed.');await page.locator('[data-pick-image="assets/forest.jpg"]').click();
+ if(!await page.locator('#player img[src="assets/forest.jpg"]').count())throw Error('Selected themed photo did not update.');
  // Exercise editor controls as a student would, including their saved model.
  await page.locator('#new-project').click();await page.locator('[data-template="mobile"]').click();
  await page.locator('[data-tab="screens"]').click();await page.getByRole('button',{name:'Monter Carte dans le menu',exact:true}).click();
