@@ -39,3 +39,13 @@ export function listRecoveries(storage){
  for(let i=0;i<storage.length;i++){const key=storage.key(i);if(!key?.startsWith(recoveryPrefix))continue;const raw=storage.getItem(key);let name='Copie à récupérer';try{name=JSON.parse(raw)?.name||name;}catch{}records.push({key,name:String(name),raw});}
  return records;
 }
+export function importedProjectCopy(storage,current,next){
+ const existing=current.id===next.id?current:rawRecords(storage).find(r=>r?.project?.id===next.id)?.project;
+ if(!existing||JSON.stringify(existing)===JSON.stringify(next))return next;
+ const copy=structuredClone(next);copy.id=uid('app');copy.name+=' (importée)';return copy;
+}
+export function projectLibraryStatus(storage){try{rawRecords(storage);return {readable:true};}catch{let raw=null;try{raw=storage.getItem(projectLibraryKey);}catch{}return {readable:false,raw};}}
+export function repairProjectLibrary(storage,current,downloaded=false){
+ const raw=storage.getItem(projectLibraryKey);if(raw){try{storage.setItem(recoveryPrefix+'library-'+Date.now()+'-'+uid('copy'),raw);}catch{if(!downloaded)throw Error('Télécharge d’abord la copie de la bibliothèque pour la conserver.');}}
+ storage.setItem(projectLibraryKey,JSON.stringify([{project:structuredClone(current),updatedAt:new Date().toISOString()}]));
+}

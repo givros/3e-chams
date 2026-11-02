@@ -55,10 +55,10 @@ export function duplicateNode(node){
  const remap=n=>{Object.values(n.events||{}).forEach(actions);(n.children||[]).forEach(remap);};remap(copy);return copy;
 }
 export function operand(kind='literal',value=''){return kind==='variable'?{kind,name:value}:kind==='math'?{kind,op:'add',a:{kind:'literal',value:0},b:{kind:'literal',value:1}}:{kind,value};}
-export function action(type,p){const number=p.variables.find(v=>v.type==='number'),list=p.variables.find(v=>v.type==='list'),any=p.variables[0];return {
+export function action(type,p){const number=p.variables.find(v=>v.type==='number'),list=p.variables.find(v=>v.type==='list'),any=p.variables.find(v=>v.type!=='computed');return {
  type,variable:(type==='increment'?number:type==='append'||type==='remove'||type==='cartAdd'?list:any)?.name||'',
- value:operand('literal',type==='toast'?'Message':''),delta:1,screen:p.screens[0]?.id,quantity:1,
- ...(type==='if'?{conditions:[{left:operand('variable',number?.name||any?.name||''),op:'gte',right:operand('literal',10)}],join:'and',then:[],else:[]}: {})
+ value:operand('literal',type==='toast'?'Message':type==='set'?(any?.type==='boolean'?false:any?.type==='number'?0:any?.type==='list'?[]:''):''),delta:1,screen:p.screens[0]?.id,quantity:1,
+ ...(type==='if'?{conditions:[{left:operand('variable',number?.name||any?.name||''),op:number?'gte':'eq',right:operand('literal',number?10:any?.type==='boolean'?false:'')}],join:'and',then:[],else:[]}: {})
 };}
 export function restaurantTemplate(){
  const p=blankProject();p.name='Mon restaurant';p.theme.primary='#ff5a2e';
@@ -112,8 +112,8 @@ export function validateProject(p){
   if(depth>30||!Array.isArray(nodes))return false;
   for(const n of nodes){
    if(!object(n)||!identifier(n.id)||ids.has(n.id)||typeof n.name!=='string'||!catalog.some(c=>c.type===n.type)||!object(n.props)||!object(n.style)||!object(n.events)||!['click','change','item'].every(k=>validActions(n.events[k]))||Object.keys(n.events).some(k=>!['click','change','item'].includes(k)))return false;
-   if(!['padding','gap','fontSize','radius'].every(k=>n.style[k]===undefined||Number.isFinite(n.style[k])))return false;
-   if(!['color','background'].every(k=>n.style[k]===undefined||n.style[k]===''||color(n.style[k])))return false;
+   if(!['padding','gap','fontSize','radius','marginX','marginY','borderWidth'].every(k=>n.style[k]===undefined||Number.isFinite(n.style[k])))return false;
+   if(!['color','background','borderColor'].every(k=>n.style[k]===undefined||n.style[k]===''||color(n.style[k])))return false;
    ids.add(n.id);if(!visit(n.children||[],depth+1))return false;
   }return true;
  };

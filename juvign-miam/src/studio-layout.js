@@ -6,6 +6,13 @@ export function columnLayout(project,count=2){
  for(let i=0;i<count;i++){const column=component('container',project);column.name='Colonne '+(i+1);column.style.padding=4;group.children.push(column);}
  return group;
 }
+export function decorativeLayout(project,kind='card'){
+ const group=component('container',project),image=component('image',project),title=component('heading',project),text=component('text',project);
+ group.name=kind==='banner'?'Bannière':'Carte';group.props.presentation=kind;group.style.padding=12;group.style.marginY=8;group.style.borderWidth=1;group.style.shadow='soft';
+ image.props.height=kind==='banner'?120:160;image.style.padding=0;title.props.text=kind==='banner'?'Mon annonce':'Mon titre';title.style.fontSize=kind==='banner'?20:24;title.style.padding=4;text.props.text='Mon texte';text.style.padding=4;
+ if(kind==='banner'){Object.assign(group.props,{direction:'grid',columns:2,columnWidths:'1,2'});const copy=component('container',project);copy.style.padding=4;copy.children=[title,text];group.children=[image,copy];}
+ else group.children=[image,title,text];return group;
+}
 
 export function moveNode(project,nodeId,destinationId,screenId){
  const source=findNode(project,nodeId),target=destinationId==='root'?null:findNode(project,destinationId),screen=project.screens.find(s=>s.id===screenId);
