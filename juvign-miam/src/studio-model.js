@@ -126,7 +126,7 @@ export function validateProject(p){
   if(depth>30||!Array.isArray(nodes))return false;
   for(const n of nodes){
    if(!object(n)||!identifier(n.id)||ids.has(n.id)||typeof n.name!=='string'||!catalog.some(c=>c.type===n.type)||!object(n.props)||!object(n.style)||!object(n.events)||!['click','change','item'].every(k=>validActions(n.events[k]))||Object.keys(n.events).some(k=>!['click','change','item',...(n.type==='timer'?['finish']:[])].includes(k)))return false;
-   if(n.type==='timer'&&(n.props.duration!==undefined&&(!Number.isFinite(n.props.duration)||n.props.duration<1||n.props.duration>86400)||n.props.autoStart!==undefined&&typeof n.props.autoStart!=='boolean'||n.events.finish!==undefined&&!validActions(n.events.finish)))return false;
+   if(n.type==='timer'&&(n.props.duration!==undefined&&(!Number.isInteger(n.props.duration)||n.props.duration<1||n.props.duration>86400)||n.props.autoStart!==undefined&&typeof n.props.autoStart!=='boolean'||n.events.finish!==undefined&&!validActions(n.events.finish)))return false;
    if(!['padding','gap','fontSize','radius','marginX','marginY','borderWidth'].every(k=>n.style[k]===undefined||Number.isFinite(n.style[k])))return false;
    if(!['color','background','borderColor'].every(k=>n.style[k]===undefined||n.style[k]===''||color(n.style[k])))return false;
    ids.add(n.id);if(!visit(n.children||[],depth+1))return false;

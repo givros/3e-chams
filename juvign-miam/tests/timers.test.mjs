@@ -22,7 +22,7 @@ test('design mode, reset, independent clocks and disposal do not leave active in
 test('restoring zero seconds does not replay an already completed timer',()=>{const c=clock();c.timer.configure([{id:'a',duration:60,autoStart:true,initialSeconds:0}]);assert.equal(c.timer.snapshot('a').running,false);c.advance(100000);assert.deepEqual(c.finished,[]);c.timer.destroy();});
 test('timer projects retain end actions, and malformed durations or foreign finish events are rejected',()=>{
  const p=blankProject(),timer=component('timer',p);p.screens[0].nodes.push(timer);assert.ok(validateProject(JSON.parse(JSON.stringify(p))));assert.deepEqual(projectIssues(p),[]);
- timer.props.duration=-1;assert.equal(validateProject(p),false);timer.props.duration=60;const button=component('button',p);button.events.finish=[];p.screens[0].nodes.push(button);assert.equal(validateProject(p),false);
+ timer.props.duration=-1;assert.equal(validateProject(p),false);timer.props.duration=1.5;assert.equal(validateProject(p),false);timer.props.duration=60;const button=component('button',p);button.events.finish=[];p.screens[0].nodes.push(button);assert.equal(validateProject(p),false);
 });
 test('end actions support visual screen connections and action drag-and-drop',()=>{
  const p=blankProject(),timer=component('timer',p);p.screens[0].nodes.push(timer);p.screens.push({id:'done',name:'Done',nodes:[]});
