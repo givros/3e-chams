@@ -24,7 +24,7 @@ export function projectIssues(project){
  for(const v of project.variables)if(v.type==='computed')operand(v.formula,v.label||v.name);
  walk(project,(n,s)=>{
   const label=s.name+' / '+n.name;
-  const type=['list','products','productDetail','cart'].includes(n.type)?'list':['number','range','rating','progress'].includes(n.type)?'number':n.type==='toggle'?'boolean':['input','textarea','select','search','date'].includes(n.type)?'text':null;
+  const type=['list','products','productDetail','cart'].includes(n.type)?'list':['number','range','rating','progress'].includes(n.type)?'number':n.type==='toggle'?'boolean':['input','textarea','select','search','date','camera'].includes(n.type)?'text':null;
   if(type)binding(n.props.variable,label,type);
   for(const key of ['textVariable','visibleVariable','discountVariable','searchVariable','srcVariable'])if(n.props[key])binding(n.props[key],label,key==='discountVariable'?'number':['searchVariable','srcVariable'].includes(key)?'text':null);
   if(n.type==='range'&&Number(n.props.max)<=Number(n.props.min))add(label,'le maximum du curseur doit être supérieur au minimum.');

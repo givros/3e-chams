@@ -1,8 +1,14 @@
+import {createLocalCamera} from './studio-camera.js';
 import {renderAppIcon} from './studio-icons.js';
 // Shared by the editor preview and the exported standalone application.
 export function createPlayer(root,project,options={}){
  let p=structuredClone(project),screen=p.home,state={},notice='',design=!!options.design,selected=options.selected||'',log=[];
- let appearance=p.theme;
+ const events=new AbortController(),listen=(type,handler,options={})=>root.addEventListener(type,handler,{...(typeof options==='boolean'?{capture:options}:options),signal:events.signal});
+ let appearance=p.theme,disposed=false;const camera=createLocalCamera();
+ const photoKey=name=>'studio-photo-'+p.id+'-'+name;
+ function clearPhotos(){const visit=nodes=>{for(const n of nodes){if(n.type==='camera')try{localStorage.removeItem(photoKey(n.props.variable));}catch{}visit(n.children||[]);}};for(const s of p.screens)visit(s.nodes);}
+ function photoCallbacks(n){const id=p.id,owner=screen;return {save:src=>{if(disposed||design||p.id!==id||screen!==owner||find(n.id)?.props.variable!==n.props.variable)return;try{write(n.props.variable,src);let saved=true;try{localStorage.setItem(photoKey(n.props.variable),src);}catch{saved=false;}run(n.events.change,{node:n,value:src});showNotice(saved?'Photo enregistrée sur cet appareil.':'Photo prise, mais l’enregistrement local est indisponible. Télécharge-la pour la garder.',saved);persist();render();}catch(e){showNotice(e.message);render();}},error:message=>{if(!disposed&&p.id===id&&screen===owner){showNotice(message);render();}}};}
+
  let trail=[],pendingScroll=null,drawerOpen=false,pendingFocus=null,noticeTimer=null;const disclosures=new Map();
  function showNotice(message,transient=false){clearTimeout(noticeTimer);notice=String(message??'');if(transient&&notice){const expected=notice;noticeTimer=setTimeout(()=>{if(root.isConnected&&notice===expected){notice='';root.querySelector('.rt-notice')?.remove();persist();}},Math.min(12000,Math.max(4000,notice.length*45)));}}
  const esc=v=>String(v??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
@@ -64,10 +70,11 @@ export function createPlayer(root,project,options={}){
    const foundIndex=list.findIndex(x=>x&&(x.id===id||((String(x.id).startsWith(source+':')&&/^\d+$/.test(String(x.id).slice(source.length+1))||/^\d+$/.test(String(x.id)))&&x.name===name&&numeric(x.price)===price&&(x.image||'')===image)));
    const next=clone(list);if(foundIndex>=0){next[foundIndex].id=id;next[foundIndex].quantity=numeric(next[foundIndex].quantity)+qty;}else next.push({id,name,price,image,quantity:qty});write(a.variable,next);
   }
-  if(a.type==='reset')for(const v of p.variables)state[v.name]=clone(v.initial);
+  if(a.type==='reset'){clearPhotos();camera.stop();for(const v of p.variables)state[v.name]=clone(v.initial);}
   if(a.type!=='if')log.push({action:a.type,variable:a.variable||'',screen});if(log.length>50)log.shift();
  }}
  function initial(restore=true){state=Object.fromEntries(p.variables.map(v=>[v.name,clone(v.initial)]));if(restore&&options.persist){try{const saved=JSON.parse(localStorage.getItem('studio-app-'+p.id));if(saved&&typeof saved==='object'&&!Array.isArray(saved))for(const v of p.variables)if(Object.hasOwn(saved,v.name)&&v.type!=='computed'&&(v.type==='list'?Array.isArray(saved[v.name]):v.type==='number'?typeof saved[v.name]==='number'&&Number.isFinite(saved[v.name]):typeof saved[v.name]===typeof v.initial))state[v.name]=clone(saved[v.name]);}catch{}}}
+ function restorePhotos(){if(design)return;const visit=nodes=>{for(const n of nodes){if(n.type==='camera')try{const src=localStorage.getItem(photoKey(n.props.variable));if(safeImage(src))write(n.props.variable,src);}catch{}visit(n.children||[]);}};for(const s of p.screens)visit(s.nodes);}
  function stateSnapshot(){const output=clone(state);for(const v of p.variables)if(v.type==='computed')output[v.name]=clone(read(v.name));return output;}
  function persist(){if(options.persist){try{localStorage.setItem('studio-app-'+p.id,JSON.stringify(state));}catch{}}options.onChange?.({screen,state:stateSnapshot(),log:clone(log),notice});}
  function nodes(list){return list.map(node=>renderNode(node)).join('');}
@@ -77,6 +84,7 @@ export function createPlayer(root,project,options={}){
   if(n.type==='heading'||n.type==='text')body=`<${tag} class="rt-copy">${text}</${tag}>`;
   if(n.type==='badge')body=`<span class="rt-badge">${text}</span>`;
   if(n.type==='image'){const src=safeImage(x.srcVariable?read(x.srcVariable):template(x.src,context));body=src?`<img class="rt-image" src="${esc(src)}" alt="${esc(x.alt||'')}" style="height:${Number(x.height)||180}px;object-fit:${x.fit==='contain'?'contain':'cover'}">`:'<div class="rt-image-placeholder">Image</div>';}
+  if(n.type==='camera'){const photo=safeImage(read(x.variable)),facing=x.facing==='user'?'user':'environment';body=`<div class="rt-camera" data-camera-box="${id}"><strong>${esc(x.label||'Ma photo')}</strong><div class="rt-camera-stage"><video playsinline muted hidden aria-label="Aperçu de la caméra"></video>${photo?`<img src="${esc(photo)}" alt="${esc(x.label||'Photo prise')}">`:'<div class="rt-camera-empty">'+renderAppIcon('camera',48)+'</div>'}</div><div class="rt-camera-controls"><button type="button" class="rt-button" data-camera-open="${id}">Ouvrir la caméra</button><button type="button" class="rt-button" data-camera-capture="${id}" hidden>Prendre la photo</button><button type="button" class="rt-camera-secondary" data-camera-stop hidden>Fermer la caméra</button><label class="rt-camera-secondary">Choisir une photo<input type="file" accept="image/jpeg,image/png,image/webp,image/gif" capture="${facing}" data-camera-file="${id}" hidden></label>${photo?`<button type="button" class="rt-camera-secondary" data-camera-download="${id}">Télécharger la photo</button><button type="button" class="rt-camera-secondary" data-camera-delete="${id}">Effacer la photo</button>`:''}</div><small>Photo conservée sur cet appareil.</small></div>`;}
   if(n.type==='icon'){const graphic=renderAppIcon(x.icon,x.iconSize),clickable=!!n.events.click?.length;body=clickable?`<button type="button" class="rt-icon-button" data-event="click" data-node="${id}" aria-label="${esc(x.label||n.name)}">${graphic}</button>`:`<span class="rt-icon-standalone" role="img" aria-label="${esc(x.label||n.name)}">${graphic}</span>`;}
   if(n.type==='button'||n.type==='back')body=`<button type="button" class="rt-button rt-custom-button" data-event="click" data-node="${id}" ${x.iconOnly?`aria-label="${text}"`:''}><span class="rt-button-content">${x.iconPosition==='right'?'':renderAppIcon(x.icon)}${x.iconOnly?'':text}${x.iconPosition==='right'?renderAppIcon(x.icon):''}</span></button>`;
   if(['input','number','textarea','select','toggle','search','date'].includes(n.type)){
@@ -153,6 +161,7 @@ export function createPlayer(root,project,options={}){
   return {header,footer,drawer};
  }
  function render(){
+  camera.stop();
   const originalInput=root.contains(document.activeElement)&&document.activeElement?.dataset?.input?document.activeElement:null;
   const active=originalInput?.dataset?.input,position=originalInput?.selectionStart,end=originalInput?.selectionEnd,oldScroll=root.querySelector('.rt-screen')?.scrollTop||0;
   const current=p.screens.find(s=>s.id===screen)||p.screens[0];screen=current.id;
@@ -178,7 +187,7 @@ export function createPlayer(root,project,options={}){
   if(pendingFocus){root.querySelector(`[data-input="${pendingFocus}"]`)?.focus();pendingFocus=null;}
   else if(active){const input=[...root.querySelectorAll('[data-input]')].find(el=>el.dataset.input===active);if(input){input.focus();try{input.setSelectionRange(position,end);}catch{}}}
  }
- root.addEventListener('click',event=>{
+ listen('click',async event=>{
   if(design){const node=event.target.closest('[data-player-node]');if(node){event.preventDefault();event.stopPropagation();selected=node.dataset.playerNode;render();options.onSelect?.(selected);}else if(!event.target.closest('button')){selected='';options.onSelect?.('');}return;}
   const button=event.target.closest('button');if(button?.disabled)return;
   if(!button){
@@ -190,6 +199,11 @@ export function createPlayer(root,project,options={}){
    }catch(error){showNotice(error.message);render();}return;
   }
   try{
+   if(button.hasAttribute('data-camera-open')){const n=find(button.dataset.cameraOpen);if(!n)return;const callbacks=photoCallbacks(n);await camera.open(button.closest('.rt-camera'),{facing:n.props.facing,max:Number(n.props.resolution)||960},callbacks.save,callbacks.error);return;}
+   if(button.hasAttribute('data-camera-capture')){camera.capture();return;}
+   if(button.hasAttribute('data-camera-stop')){camera.stop();return;}
+   if(button.hasAttribute('data-camera-download')){const n=find(button.dataset.cameraDownload),src=safeImage(read(n.props.variable));if(src){const link=document.createElement('a');link.href=src;link.download='photo-'+new Date().toISOString().replace(/[:.]/g,'-')+'.jpg';link.click();}return;}
+   if(button.hasAttribute('data-camera-delete')){const n=find(button.dataset.cameraDelete);localStorage.removeItem(photoKey(n.props.variable));write(n.props.variable,'');showNotice('Photo effacée.',true);persist();render();return;}
    if(button.hasAttribute('data-nav-menu'))drawerOpen=true;
    if(button.hasAttribute('data-nav-close'))drawerOpen=false;
    if(button.hasAttribute('data-nav-back'))back();
@@ -202,7 +216,7 @@ export function createPlayer(root,project,options={}){
    persist();render();if(drawerOpen)root.querySelector('.rt-drawer button')?.focus();
   }catch(error){showNotice(error.message);render();options.onChange?.({screen,state:stateSnapshot(),log:clone(log),notice});}
  });
- root.addEventListener('keydown',event=>{
+ listen('keydown',event=>{
   if(drawerOpen&&event.key==='Escape'){event.preventDefault();drawerOpen=false;render();root.querySelector('[data-nav-menu]')?.focus();return;}
   if(drawerOpen&&event.key==='Tab'){const buttons=[...root.querySelectorAll('.rt-drawer button')],first=buttons[0],last=buttons.at(-1);if(event.shiftKey&&document.activeElement===first){event.preventDefault();last?.focus();}else if(!event.shiftKey&&document.activeElement===last){event.preventDefault();first?.focus();}return;}
   if(!design&&event.key==='Enter'&&event.target.tagName==='INPUT'&&!['range','checkbox'].includes(event.target.type)){
@@ -211,11 +225,12 @@ export function createPlayer(root,project,options={}){
   }
   if(design||!['Enter',' '].includes(event.key)||event.target.tagName==='BUTTON')return;const row=event.target.closest('[role="button"][data-event="item"]');if(row){event.preventDefault();row.click();}
  });
+ listen('change',event=>{const input=event.target;if(design||!input.dataset.cameraFile||!input.files?.[0])return;const n=find(input.dataset.cameraFile);if(!n)return;const callbacks=photoCallbacks(n);camera.importFile(input.files[0],Number(n.props.resolution)||960,callbacks.save,callbacks.error);});
  const inputHandler=event=>{if(design||!event.target.dataset.bind)return;const input=event.target,n=find(input.dataset.node);try{const next=input.type==='checkbox'?input.checked:['number','range'].includes(input.type)?Number(input.value):input.value;write(input.dataset.bind,next);run(n.events.change,{value:next,node:n});persist();render();}catch(error){showNotice(error.message);render();}};
- root.addEventListener('input',event=>{if(event.target.type==='range'&&!design){try{write(event.target.dataset.bind,Number(event.target.value));const output=root.querySelector(`[data-range-output="${event.target.dataset.node}"]`);if(output)output.textContent=event.target.value;}catch(error){showNotice(error.message);render();}return;}if(event.target.tagName!=='SELECT')inputHandler(event);});root.addEventListener('change',event=>{if(event.target.tagName==='SELECT'||event.target.type==='range')inputHandler(event);});
- root.addEventListener('toggle',event=>{if(event.target.dataset.disclosure&&!design)disclosures.set(event.target.dataset.disclosure,event.target.open);},true);
- initial();render();persist();
- return {getState:()=>stateSnapshot(),getScreen:()=>screen,run:(actions,context={})=>{run(actions,context);persist();render();},update:(next,settings={})=>{if(next.id!==p.id){trail=[];drawerOpen=false;disclosures.clear();pendingFocus=null;showNotice('');}p=clone(next);for(const v of p.variables)if(!Object.hasOwn(state,v.name))state[v.name]=clone(v.initial);for(const name of Object.keys(state))if(!p.variables.some(v=>v.name===name))delete state[name];design=!!settings.design;selected=settings.selected||'';if(settings.reset){initial(false);showNotice('');log=[];trail=[];drawerOpen=false;pendingScroll=0;disclosures.clear();}if(settings.screen)screen=settings.screen;render();persist();},reset:()=>{screen=p.home;trail=[];drawerOpen=false;pendingScroll=0;disclosures.clear();initial(false);showNotice('');log=[];render();persist();},select:id=>{selected=id;render();},clear:()=>{showNotice('');render();}};
+ listen('input',event=>{if(event.target.type==='range'&&!design){try{write(event.target.dataset.bind,Number(event.target.value));const output=root.querySelector(`[data-range-output="${event.target.dataset.node}"]`);if(output)output.textContent=event.target.value;}catch(error){showNotice(error.message);render();}return;}if(event.target.tagName!=='SELECT')inputHandler(event);});listen('change',event=>{if(event.target.tagName==='SELECT'||event.target.type==='range')inputHandler(event);});
+ listen('toggle',event=>{if(event.target.dataset.disclosure&&!design)disclosures.set(event.target.dataset.disclosure,event.target.open);},true);
+ initial();restorePhotos();render();persist();
+ return {getState:()=>stateSnapshot(),getScreen:()=>screen,run:(actions,context={})=>{run(actions,context);persist();render();},destroy:()=>{disposed=true;events.abort();camera.destroy?.();camera.stop();clearTimeout(noticeTimer);},update:(next,settings={})=>{camera.stop();if(next.id!==p.id){trail=[];drawerOpen=false;disclosures.clear();pendingFocus=null;showNotice('');}p=clone(next);for(const v of p.variables)if(!Object.hasOwn(state,v.name))state[v.name]=clone(v.initial);for(const name of Object.keys(state))if(!p.variables.some(v=>v.name===name))delete state[name];design=!!settings.design;selected=settings.selected||'';if(settings.reset){initial(false);if(!design)restorePhotos();showNotice('');log=[];trail=[];drawerOpen=false;pendingScroll=0;disclosures.clear();}if(settings.screen)screen=settings.screen;render();persist();},reset:()=>{camera.stop();clearPhotos();screen=p.home;trail=[];drawerOpen=false;pendingScroll=0;disclosures.clear();initial(false);showNotice('');log=[];render();persist();},select:id=>{selected=id;render();},clear:()=>{showNotice('');render();}};
 }
 
 export const playerCSS=`
@@ -236,4 +251,5 @@ export const playerCSS=`
 .rt-cart-row button{width:44px;height:44px}.rt-small,.rt-remove{min-height:44px}.rt-remove{min-width:44px}.rt-rating button{min-width:44px;min-height:44px}.rt-label input,.rt-label select{min-height:44px}.rt-notice{padding-right:54px;max-height:45%;overflow:auto;min-height:50px}.rt-notice button{width:44px;height:44px;top:3px;right:3px;padding:8px}.rt-drawer nav button b{min-width:0;overflow-wrap:anywhere}
 
 .rt-node[data-presentation=card]{background:color-mix(in srgb,var(--app-background) 94%,var(--app-text) 6%)}.rt-node[data-presentation=banner]{background:var(--app-primary)}
+.rt-camera{display:flex;flex-direction:column;gap:12px}.rt-camera-stage{background:color-mix(in srgb,var(--app-text) 8%,var(--app-background));border-radius:12px;overflow:hidden}.rt-camera-stage video,.rt-camera-stage img{display:block;width:100%;max-height:320px;object-fit:contain}.rt-camera [hidden]{display:none!important}.rt-camera-empty{min-height:160px;display:grid;place-items:center;opacity:.55}.rt-camera-controls{display:flex;flex-wrap:wrap;gap:8px}.rt-camera-secondary{min-height:44px;display:flex;align-items:center;justify-content:center;flex:1 1 45%;border:1px solid currentColor;border-radius:9px;padding:8px;font-size:12px;cursor:pointer}.rt-camera>small{font-size:11px;opacity:.75}
 `;

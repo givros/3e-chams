@@ -1,5 +1,5 @@
 export const catalog=[
- ['heading','Titre','T'],['text','Texte','¶'],['image','Image','▧'],['icon','Icône','★'],['button','Bouton','↗'],['back','Retour','←'],
+ ['heading','Titre','T'],['text','Texte','¶'],['image','Image','▧'],['icon','Icône','★'],['camera','Appareil photo','📷'],['button','Bouton','↗'],['back','Retour','←'],
  ['input','Saisie','⌨'],['number','Nombre','123'],['textarea','Texte long','≡'],['select','Choix','▾'],['toggle','Interrupteur','◉'],
  ['search','Recherche','⌕'],['date','Date','▦'],['range','Curseur','↔'],['rating','Étoiles','★'],['progress','Progression','▰'],['badge','Étiquette','●'],['form','Formulaire','▤'],['accordion','Volet dépliant','⌄'],
  ['container','Groupe d’éléments','□'],['list','Liste','☷'],['products','Liste de produits','▦'],['productDetail','Fiche article','▣'],['cart','Panier','＋'],['divider','Séparateur','—'],['spacer','Espacement','↕']
@@ -17,6 +17,7 @@ export function variable(p,name,type='text',initial=''){
 }
 export function component(type,p){
  const node={id:uid('node'),type,name:catalog.find(c=>c.type===type)?.label||type,props:{text:type==='heading'?'Mon titre':type==='button'?'Mon bouton':'Mon texte'},style:{padding:12,gap:10,fontSize:type==='heading'?26:14,align:'left',width:'100%',color:'',background:''},events:{click:[],change:[],item:[]},children:[]};
+ if(type==='camera'){const v=variable(p,'photo','text','');Object.assign(node.props,{variable:v.name,label:'Ma photo',facing:'environment',resolution:960});v.autoLabelFrom=node.id;v.label='Ma photo';}
  if(type==='icon')Object.assign(node.props,{icon:'heart',iconSize:40,label:'Favori'});
  if(type==='image')Object.assign(node.props,{src:'assets/pizza.jpg',alt:'Image',height:180,fit:'cover'});
  if(['input','number','textarea','toggle','select','search','date','range','rating'].includes(type)){
