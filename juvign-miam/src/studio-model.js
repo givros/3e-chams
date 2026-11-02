@@ -16,7 +16,7 @@ export function variable(p,name,type='text',initial=''){
  const v={name:unique,label:(labels[name]||name)+(unique!==base?' '+unique.slice(base.length):''),type,initial,fields:sample?Object.keys(sample).map(name=>({name,label:({name:'Nom',price:'Prix',image:'Photo',quantity:'Quantité'})[name]||name,type:typeof sample[name]==='number'?'number':typeof sample[name]==='boolean'?'boolean':typeof sample[name]==='string'&&/^(assets\/|data:image\/)/.test(sample[name])?'image':'text'})):[]};p.variables.push(v);return v;
 }
 export function component(type,p){
- const node={id:uid('node'),type,name:catalog.find(c=>c.type===type)?.label||type,props:{text:type==='heading'?'Mon titre':type==='button'?'Mon bouton':'Mon texte'},style:{padding:12,gap:10,fontSize:type==='heading'?26:14,align:'left',width:'100%',radius:10,color:'',background:''},events:{click:[],change:[],item:[]},children:[]};
+ const node={id:uid('node'),type,name:catalog.find(c=>c.type===type)?.label||type,props:{text:type==='heading'?'Mon titre':type==='button'?'Mon bouton':'Mon texte'},style:{padding:12,gap:10,fontSize:type==='heading'?26:14,align:'left',width:'100%',color:'',background:''},events:{click:[],change:[],item:[]},children:[]};
  if(type==='image')Object.assign(node.props,{src:'assets/pizza.jpg',alt:'Image',height:180,fit:'cover'});
  if(['input','number','textarea','toggle','select','search','date','range','rating'].includes(type)){
   const kind=['number','range','rating'].includes(type)?'number':type==='toggle'?'boolean':'text';const v=variable(p,kind==='number'?'number':type==='toggle'?'enabled':type==='search'?'search':'input',kind,kind==='number'?(type==='range'?50:0):kind==='boolean'?false:'');
@@ -111,6 +111,7 @@ export function validateProject(p){
   for(const n of nodes){
    if(!object(n)||!identifier(n.id)||ids.has(n.id)||typeof n.name!=='string'||!catalog.some(c=>c.type===n.type)||!object(n.props)||!object(n.style)||!object(n.events)||!['click','change','item'].every(k=>validActions(n.events[k]))||Object.keys(n.events).some(k=>!['click','change','item'].includes(k)))return false;
    if(!['padding','gap','fontSize','radius'].every(k=>n.style[k]===undefined||Number.isFinite(n.style[k])))return false;
+   if(!['color','background'].every(k=>n.style[k]===undefined||n.style[k]===''||color(n.style[k])))return false;
    ids.add(n.id);if(!visit(n.children||[],depth+1))return false;
   }return true;
  };

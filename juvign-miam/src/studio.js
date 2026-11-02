@@ -6,16 +6,36 @@ import {projectIssues} from './studio-diagnostics.js';
 import {columnLayout,moveNode} from './studio-layout.js';
 import {navigationSettings,setNavigation,cleanNavigation} from './studio-navigation.js';
 import {componentCategories,libraryEntries,normalizeSearch} from './studio-library.js';
+import {activeProjectKey,listProjects,archiveProject,switchProject,removeProject} from './studio-projects.js';
+import {themePresets,appFonts,applyThemePreset,setAppBackground,readableText} from './studio-theme.js';
 const $=s=>document.querySelector(s),esc=v=>String(v??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 const photoNames={burger:'Burger',pizza:'Pizza',sushi:'Sushis',tacos:'Tacos',fries:'Frites',drink:'Boisson'};
 const typeLabels={text:'Texte',number:'Nombre',boolean:'Oui / non',list:'Liste',computed:'Calcul'};
-const storageKey='juvign-miam-studio-v3';let project=blankProject(),loadMessage='',componentQuery='',componentCategory='all',modelQuery='';
+const storageKey=activeProjectKey;let project=blankProject(),loadMessage='',componentQuery='',componentCategory='all',modelQuery='',librarySaveTimer;
 try{const saved=JSON.parse(localStorage.getItem(storageKey));if(validateProject(saved))project=saved;}catch{loadMessage='Sauvegarde locale indisponible.';}
 walk(project,n=>{const match=String(n.props.text||'').match(/^(.*?)\{\{(\w+)\}\}$/);if(match&&!n.props.textVariable&&project.variables.some(v=>v.name===match[2])){n.props.text=match[1];n.props.textVariable=match[2];}});
 for(const v of project.variables)for(const f of v.fields||[])if(f.type==='text'&&v.initial?.some(item=>typeof item?.[f.name]==='string'&&/^(assets\/|data:image\/)/.test(item[f.name])))f.type='image';
 let screenId=project.home,selectedId=null,selectedVariable=null,libraryTab='components',inspectorTab='props',eventName='click',mode='design',actionPath=null,history=[],future=[],lastEdit='',lastEditTime=0,dragItem=null,uploadTarget=null,player,lastState={};
 const style=document.createElement('style');style.textContent=playerCSS;document.head.append(style);
-function save(){try{localStorage.setItem(storageKey,JSON.stringify(project));$('#save-status').textContent='Enregistré sur cet ordinateur';}catch{$('#save-status').textContent='Stockage plein : télécharge le projet JSON.';}$('#undo').disabled=!history.length;$('#redo').disabled=!future.length;}
+function save(){
+ clearTimeout(librarySaveTimer);
+ try{localStorage.setItem(storageKey,JSON.stringify(project));$('#save-status').textContent='Enregistré sur cet ordinateur';librarySaveTimer=setTimeout(()=>{try{archiveProject(localStorage,project);}catch{$('#save-status').textContent='Bibliothèque pleine : télécharge une sauvegarde du projet.';}},650);}catch{$('#save-status').textContent='Stockage plein : télécharge le projet JSON.';}
+ $('#undo').disabled=!history.length;$('#redo').disabled=!future.length;
+}
+function projectError(error){
+ const message=error?.name==='QuotaExceededError'?'Espace insuffisant. Télécharge une sauvegarde avant de changer d’application.':error.message;
+ $('#save-status').textContent=message;
+ for(const id of ['projects','new-project']){const target=$('#'+id+'-error');if(target){target.hidden=false;target.textContent=message;}}
+}
+function activateProject(next,{undoable=false}={}){
+ try{clearTimeout(librarySaveTimer);switchProject(localStorage,project,next);if(undoable)snapshot();else{history=[];future=[];}project=next;screenId=project.home;selectedId=selectedVariable=null;mode='design';libraryTab='components';componentQuery=modelQuery='';componentCategory='all';save();renderAll();return true;}catch(error){projectError(error);return false;}
+}
+function renderProjectLibrary(){
+ let records=listProjects(localStorage);if(!records.some(r=>r.project.id===project.id))records.unshift({project,updatedAt:new Date().toISOString()});
+ const query=normalizeSearch($('#project-library-search').value);
+ records=records.filter(r=>!query||normalizeSearch(r.project.name).includes(query)).sort((a,b)=>(b.project.id===project.id)-(a.project.id===project.id)||b.updatedAt.localeCompare(a.updatedAt));
+ $('#project-list').innerHTML=records.length?records.map(r=>{const p=r.project,active=p.id===project.id;return `<div class="project-row"><div><input data-project-name="${p.id}" aria-label="Nom de l’application ${esc(p.name)}" value="${esc(active?project.name:p.name)}"><small>${p.screens.length} écran${p.screens.length>1?'s':''} · ${new Date(r.updatedAt).toLocaleString('fr-FR',{timeZone:'Europe/Paris',day:'numeric',month:'short',hour:'2-digit',minute:'2-digit'})}</small></div><button class="project-open" data-project-open="${p.id}" ${active?'disabled':''}>${active?'Ouverte':'Ouvrir'}</button><button data-project-copy="${p.id}">Dupliquer</button><button class="danger" data-project-delete="${p.id}" ${active?'disabled':''}>Supprimer</button></div>`;}).join(''):'<p class="help">Aucune application trouvée.</p>';
+}
 function snapshot(key=''){const now=Date.now();if(!key||key!==lastEdit||now-lastEditTime>900){history.push(JSON.stringify(project));if(history.length>30)history.shift();}lastEdit=key;lastEditTime=now;future=[];}
 function commit(mutator,{redraw=true,key=''}={}){snapshot(key);const screens=new Set(project.screens.map(s=>s.id));mutator();if(project.navigation?.enabled)for(const s of project.screens)if(!screens.has(s.id))project.navigation.items.push(s.id);cleanNavigation(project);save();if(redraw)renderAll();else{renderScreensPicker();renderLibrary();refreshPlayer();renderIssues();}}
 function safeGet(object,path){return path.split('.').reduce((value,key)=>['__proto__','constructor','prototype'].includes(key)?undefined:value?.[key],object);}
@@ -79,7 +99,7 @@ function actionsUI(list,path,depth=0){
  return `<div class="action-target" data-action-target="${path}">${cards||'<p class="help">Déposer une action ici</p>'}<select class="add-action-picker" data-insert-action="${path}"><option value="">＋ Ajouter une action</option>${actionTypes.map(([v,l])=>option(v,l,'')).join('')}</select></div>`;
 }
 function renderNodeProps(n){
- let html=field('Nom du composant',input('name',n.name));const x=n.props;
+ let html=field('Nom du composant',input('name',n.name));const x=n.props,defaultBackground=['button','back','badge'].includes(n.type)?project.theme.primary:currentScreen().background,defaultColor=['button','back','badge','input','number','search','date','textarea','select'].includes(n.type)?readableText(n.style.background||(['button','back','badge'].includes(n.type)?project.theme.primary:'#ffffff')):n.style.background?readableText(n.style.background):project.theme.text;
  if(['heading','text','button','back','badge'].includes(n.type))html+=field('Texte',`<textarea data-path="props.text">${esc(x.text)}</textarea>`)+field('Afficher une donnée après le texte',selectInput('props.textVariable',x.textVariable||'',variablesOptions()))+`<details class="advanced"><summary>Texte avec plusieurs données</summary><select class="inline-pick" data-insert-binding="props.text"><option value="">Insérer une donnée…</option>${project.variables.map(v=>option(v.name,v.label||v.name,'')).join('')}</select><p class="help">Les données entre doubles accolades seront remplacées à l’exécution.</p></details>`;
  if(['button','back'].includes(n.type)){
   const destination=n.events.click.find(a=>a.type==='navigate'||a.type==='back');
@@ -112,8 +132,9 @@ function renderNodeProps(n){
  }
  if(n.type==='cart')html+=field('Frais de livraison',input('props.delivery',x.delivery,'number','min="0" step="0.1"'))+field('Livraison offerte dès (0 : désactivé)',input('props.freeAt',x.freeAt,'number','min="0" step="1"'))+field('Donnée contenant la réduction',selectInput('props.discountVariable',x.discountVariable,variablesOptions('number')))+field('Texte du bouton',input('props.checkout',x.checkout));
  html+='<hr class="mini-divider"><div class="section-label">Apparence</div><div class="form-row">'+field('Taille du texte',input('style.fontSize',n.style.fontSize,'number','min="8" max="72"'))+field('Alignement',selectInput('style.align',n.style.align,[['left','Gauche'],['center','Centre'],['right','Droite']]))+'</div>';
- html+='<div class="form-row">'+field('Couleur du texte',input('style.color',n.style.color||project.theme.text,'color'))+field('Couleur du fond',input('style.background',n.style.background||currentScreen().background,'color'))+'</div>';
- html+='<details class="advanced"><summary>Dimensions et affichage</summary><div class="form-row">'+field('Marge intérieure',input('style.padding',n.style.padding,'number','min="0" max="100"'))+field('Largeur',selectInput('style.width',n.style.width,['100%','75%','50%','auto']))+'</div>'+field('Arrondi',input('style.radius',n.style.radius,'number','min="0" max="80"'))+field('Afficher seulement si cette donnée est vraie',selectInput('props.visibleVariable',x.visibleVariable||'',variablesOptions()))+'</details>';
+ html+='<div class="form-row">'+field('Couleur du texte',input('style.color',n.style.color||defaultColor,'color'))+field('Couleur du fond',input('style.background',n.style.background||defaultBackground,'color'))+'</div>';
+ html+='<details class="advanced"><summary>Dimensions et affichage</summary><div class="form-row">'+field('Marge intérieure',input('style.padding',n.style.padding,'number','min="0" max="100"'))+field('Largeur',selectInput('style.width',n.style.width,['100%','75%','50%','auto']))+'</div>'+field('Arrondi',input('style.radius',n.style.radius??project.theme.radius,'number','min="0" max="80"'))+field('Afficher seulement si cette donnée est vraie',selectInput('props.visibleVariable',x.visibleVariable||'',variablesOptions()))+'</details>';
+ html+='<button class="outline-button" data-use-app-style>Couleurs et arrondi de l&#8217;appli</button>';
  return html+`<div class="prop-actions"><button data-node-op="up">↑ Monter</button><button data-node-op="down">↓ Descendre</button><button data-node-op="duplicate">Dupliquer</button><button class="danger" data-node-op="delete">Supprimer</button></div>`;
 }
 function variableEditor(v){
@@ -130,8 +151,14 @@ function variableEditor(v){
 }
 function renderInspector(){
  const n=selected();$('#props-tab').classList.toggle('active',inspectorTab==='props');$('#events-tab').classList.toggle('active',inspectorTab==='actions');$('#events-tab').disabled=!!selectedVariable||!n;
+ $('#theme-tab').classList.toggle('active',inspectorTab==='theme');
  let html='';
- if(selectedVariable&&n){$('#inspector-title').textContent=n.label||n.name;html=variableEditor(n);}
+ if(inspectorTab==='theme'){
+  $('#inspector-title').textContent='Style de l’application';
+  html=`<div class="section-label">Palettes</div><div class="theme-presets">${themePresets.map(t=>`<button data-theme-preset="${t.id}" title="${esc(t.name)}"><span style="background:${t.background};border-color:${t.text}"><i style="background:${t.primary}"></i><i style="background:${t.text}"></i></span><b>${esc(t.name)}</b></button>`).join('')}</div>`;
+  html+=field('Couleur principale',`<input class="full" type="color" data-theme-prop="primary" value="${project.theme.primary}">`)+field('Fond de l’application',`<input class="full" type="color" data-theme-prop="background" value="${project.theme.background}">`)+field('Texte',`<input class="full" type="color" data-theme-prop="text" value="${project.theme.text}">`)+field('Police',`<select class="full" data-theme-prop="font">${appFonts.map(([v,l])=>option(v,l,project.theme.font||'rounded')).join('')}</select>`)+field('Arrondi par défaut',`<input class="full" type="number" min="0" max="60" data-theme-prop="radius" value="${project.theme.radius}">`);
+ }
+ else if(selectedVariable&&n){$('#inspector-title').textContent=n.label||n.name;html=variableEditor(n);}
  else if(n){$('#inspector-title').textContent=n.name;
   if(inspectorTab==='actions'){
    const events=[['click','Quand on clique'],...(['input','number','textarea','select','toggle','search','date','range','rating'].includes(n.type)?[['change','Quand la valeur change']]:[]),...(['list','products'].includes(n.type)?[['item','Quand on clique un élément']]:[])];
@@ -142,7 +169,7 @@ function renderInspector(){
   $('#inspector-title').textContent=currentScreen().name;
   html=field('Nom de l’écran',`<input class="full" data-screen-prop="name" value="${esc(currentScreen().name)}">`)+field('Fond de l’écran',`<input class="full" type="color" data-screen-prop="background" value="${esc(currentScreen().background||project.theme.background)}">`)+`<button class="outline-button" data-set-home style="margin-top:15px">${project.home===screenId?'⌂ Écran de démarrage':'Définir comme écran de démarrage'}</button><hr class="mini-divider"><div class="section-label">Apparence de l’application</div>`+field('Couleur principale',`<input class="full" type="color" data-theme-prop="primary" value="${project.theme.primary}">`)+field('Couleur du texte',`<input class="full" type="color" data-theme-prop="text" value="${project.theme.text}">`)+field('Arrondi des boutons',`<input class="full" type="number" min="0" max="60" data-theme-prop="radius" value="${project.theme.radius}">`)+`<div class="prop-actions"><button data-duplicate-screen>Dupliquer l’écran</button><button data-delete-screen class="danger" ${project.screens.length===1?'disabled':''}>Supprimer l’écran</button></div>`;
  }
- if(!n&&!selectedVariable)html+=`<details class="advanced"><summary>Nom et icône dans le menu</summary>${field('Nom court',`<input class="full" data-screen-prop="menuLabel" placeholder="${esc(currentScreen().name)}" value="${esc(currentScreen().menuLabel||'')}">`)}${field('Icône',`<select class="full" data-screen-prop="menuIcon">${[['⌂','Maison'],['▦','Grille'],['♥','Cœur'],['★','Étoile'],['☷','Liste'],['●','Rond'],['＋','Plus'],['☺','Profil'],['▣','Panier']].map(([v,l])=>option(v,v+' '+l,currentScreen().menuIcon||'●')).join('')}</select>`)}</details>`;
+ if(!n&&!selectedVariable&&inspectorTab!=='theme')html+=`<details class="advanced" ${project.navigation?.enabled?'open':''}><summary>Nom et icône dans le menu</summary>${field('Nom court',`<input class="full" data-screen-prop="menuLabel" placeholder="${esc(currentScreen().name)}" value="${esc(currentScreen().menuLabel||'')}">`)}${field('Icône',`<select class="full" data-screen-prop="menuIcon">${[['','Automatique'],['⌂','Maison'],['▦','Grille'],['♥','Cœur'],['★','Étoile'],['☷','Liste'],['●','Rond'],['＋','Plus'],['☺','Profil'],['▣','Panier']].map(([v,l])=>option(v,(v?v+' ':'')+l,currentScreen().menuIcon||'')).join('')}</select>`)}</details>`;
  $('#inspector-content').innerHTML=html;
 }
 function issues(){return projectIssues(project);}
@@ -165,19 +192,22 @@ document.addEventListener('input',event=>{
  const el=event.target;if(el.matches('select'))return;
  if(el.id==='component-search'){componentQuery=el.value;renderLibrary();return;}
  if(el.id==='model-search'){modelQuery=el.value;renderLibrary();return;}
+ if(el.id==='project-library-search'){renderProjectLibrary();return;}
  if(el.dataset.navigationProp){commit(()=>setNavigation(project,{[el.dataset.navigationProp]:el.checked}));return;}
  if(el.dataset.navigationItem){commit(()=>{const nav=navigationSettings(project);setNavigation(project,{items:el.checked?[...nav.items,el.dataset.navigationItem]:nav.items.filter(id=>id!==el.dataset.navigationItem)});});return;}
  if(el.dataset.path)mutateProperty(el);
  if(el.dataset.columnLabel!==undefined&&selectedVariable)commit(()=>selected().fields[Number(el.dataset.columnLabel)].label=el.value,{redraw:false,key:'column-label-'+el.dataset.columnLabel});
  if(el.id==='project-name')commit(()=>project.name=el.value,{redraw:false,key:'project-name'});
  if(el.dataset.screenProp)commit(()=>currentScreen()[el.dataset.screenProp]=el.value,{redraw:false,key:screenId+'.'+el.dataset.screenProp});
- if(el.dataset.themeProp)commit(()=>project.theme[el.dataset.themeProp]=el.type==='number'?Math.min(Number(el.max||60),Math.max(Number(el.min||0),Number(el.value))):el.value,{redraw:false,key:'theme.'+el.dataset.themeProp});
+ if(el.dataset.themeProp)commit(()=>{if(el.dataset.themeProp==='background')setAppBackground(project,el.value);else project.theme[el.dataset.themeProp]=el.type==='number'?Math.min(Number(el.max||60),Math.max(Number(el.min||0),Number(el.value))):el.value;},{redraw:false,key:'theme.'+el.dataset.themeProp});
  if(el.dataset.recordField!==undefined)updateRecord(el);
 });
 function updateRecord(el){const v=selected();if(!v||v.type!=='list')return;const index=Number(el.dataset.recordField);const val=el.type==='number'?Number(el.value):el.dataset.recordType==='boolean'?el.value==='true':el.value;commit(()=>{if(el.dataset.recordKey){if(!v.initial[index]||typeof v.initial[index]!=='object')v.initial[index]={};v.initial[index][el.dataset.recordKey]=val;}else v.initial[index]=val;},{redraw:false,key:v.name+'.'+index+'.'+(el.dataset.recordKey||'')});}
 document.addEventListener('change',event=>{
  const el=event.target;
+ if(el.dataset.projectName){try{const name=el.value.trim()||'Mon application';if(el.dataset.projectName===project.id)commit(()=>project.name=name,{redraw:false});else{const record=listProjects(localStorage).find(r=>r.project.id===el.dataset.projectName);if(record){record.project.name=name;archiveProject(localStorage,record.project);}}renderProjectLibrary();}catch(error){projectError(error);}return;}
  if(el.id==='component-category'){componentCategory=el.value;renderLibrary();return;}
+ if(el.tagName==='SELECT'&&el.dataset.themeProp){commit(()=>project.theme[el.dataset.themeProp]=el.value);return;}
  if(el.dataset.buttonNavigation!==undefined){const n=selected();if(!n)return;commit(()=>{n.events.click=n.events.click.filter(a=>!['navigate','back'].includes(a.type));if(el.value==='back')n.events.click.push({type:'back'});else if(project.screens.some(s=>s.id===el.value))n.events.click.push({type:'navigate',screen:el.value});});return;}
  if(el.tagName==='SELECT'&&el.dataset.screenProp){commit(()=>currentScreen()[el.dataset.screenProp]=el.value,{redraw:false});return;}
  if(el.tagName==='SELECT'&&el.dataset.navigationProp){commit(()=>setNavigation(project,{[el.dataset.navigationProp]:el.value}));return;}
@@ -189,6 +219,11 @@ document.addEventListener('change',event=>{
 });
 document.addEventListener('click',event=>{
  const b=event.target.closest('button');if(!b||b.disabled)return;
+ if(b.hasAttribute('data-use-app-style')){const n=selected();if(n)commit(()=>{n.style.color='';n.style.background='';delete n.style.radius;});return;}
+ if(b.dataset.themePreset){commit(()=>applyThemePreset(project,b.dataset.themePreset));return;}
+ if(b.dataset.projectOpen){const record=listProjects(localStorage).find(r=>r.project.id===b.dataset.projectOpen);if(record&&activateProject(record.project))$('#projects-dialog').close();return;}
+ if(b.dataset.projectCopy){const source=b.dataset.projectCopy===project.id?project:listProjects(localStorage).find(r=>r.project.id===b.dataset.projectCopy)?.project;if(source){const copy=structuredClone(source);copy.id=uid('app');copy.name+=' copie';if(activateProject(copy))$('#projects-dialog').close();}return;}
+ if(b.dataset.projectDelete){if(!confirm('Supprimer cette application de cet ordinateur ?'))return;try{removeProject(localStorage,b.dataset.projectDelete,project.id);renderProjectLibrary();}catch(error){projectError(error);}return;}
  if(b.dataset.tab){libraryTab=b.dataset.tab;renderLibrary();return;}
  if(b.hasAttribute('data-open-navigation')){commit(()=>{libraryTab='screens';setNavigation(project,{enabled:true});});document.querySelector('.navigation-config')?.scrollIntoView({block:'start'});return;}
  if(b.dataset.screenModel){commit(()=>{screenId=addScreenTemplate(project,b.dataset.screenModel).id;selectedId=selectedVariable=null;mode='design';});return;}
@@ -217,7 +252,7 @@ document.addEventListener('click',event=>{
  if(b.dataset.deleteColumn!==undefined){commit(()=>{const v=selected(),[f]=v.fields.splice(Number(b.dataset.deleteColumn),1);for(const row of v.initial)if(row&&typeof row==='object')delete row[f.name];});return;}
  if(b.hasAttribute('data-delete-variable')){if(!confirm('Supprimer cette variable ? Les composants liés devront être reconfigurés.'))return;commit(()=>{project.variables=project.variables.filter(v=>v.name!==selectedVariable);selectedVariable=null;});return;}
  if(b.hasAttribute('data-rename-variable')){const previous=selectedVariable,next=prompt('Nouvel identifiant de la variable',previous);if(!next||!/^\w+$/.test(next)||['__proto__','constructor','prototype'].includes(next)||project.variables.some(v=>v.name===next))return;commit(()=>{const visit=obj=>{if(!obj||typeof obj!=='object')return;for(const [k,v]of Object.entries(obj)){if(typeof v==='string'){if(['variable','discountVariable','visibleVariable','textVariable'].includes(k)&&v===previous||['variable','length','cartTotal'].includes(obj.kind)&&k==='name'&&v===previous)obj[k]=next;else obj[k]=v.replaceAll('{{'+previous+'}}','{{'+next+'}}').replaceAll('{{'+previous+'.','{{'+next+'.');}else visit(v);}};selected().name=next;visit(project);selectedVariable=next;});return;}
- if(b.dataset.template){if((project.screens.some(s=>s.nodes.length)||project.variables.length)&&!confirm('Remplacer le projet ouvert ? Télécharge son JSON pour le conserver.'))return;history=[];future=[];project=b.dataset.template==='mobile'?mobileAppTemplate():b.dataset.template==='restaurant'?restaurantTemplate():b.dataset.template==='tasks'?tasksTemplate():blankProject();screenId=project.home;selectedId=selectedVariable=null;mode='design';libraryTab='components';save();$('#new-dialog').close();renderAll();return;}
+ if(b.dataset.template){const next=b.dataset.template==='mobile'?mobileAppTemplate():b.dataset.template==='restaurant'?restaurantTemplate():b.dataset.template==='tasks'?tasksTemplate():blankProject();if(activateProject(next))$('#new-dialog').close();return;}
  if(b.dataset.close)$('#'+b.dataset.close).close();
 });
 $('#image-upload').onchange=async event=>{const file=event.target.files[0];if(!file||!uploadTarget)return;try{if(!['image/png','image/jpeg','image/webp','image/gif'].includes(file.type))throw Error('Choisis une image PNG, JPEG, WebP ou GIF.');if(file.size>10*1024*1024)throw Error('Choisis une image de moins de 10 Mo.');const src=await new Promise((resolve,reject)=>{const r=new FileReader();r.onload=()=>resolve(r.result);r.onerror=reject;r.readAsDataURL(file);});commit(()=>{if(uploadTarget.node){const n=findNode(project,uploadTarget.node)?.node;if(n)n.props.src=src;}else{const v=project.variables.find(v=>v.name===uploadTarget.variable);if(v&&uploadTarget.index<v.initial.length){if(!v.initial[uploadTarget.index]||typeof v.initial[uploadTarget.index]!=='object')v.initial[uploadTarget.index]={};v.initial[uploadTarget.index][uploadTarget.key]=src;}}});}catch(error){$('#save-status').textContent=error.message;}finally{event.target.value='';uploadTarget=null;}};
@@ -239,13 +274,16 @@ document.addEventListener('drop',event=>{
  dragItem=null;
 });
 $('#props-tab').onclick=()=>{inspectorTab='props';renderInspector();};$('#events-tab').onclick=()=>{inspectorTab='actions';eventName=['list','products'].includes(selected()?.type)?'item':['input','number','textarea','select','toggle','search','date','range','rating'].includes(selected()?.type)?'change':'click';renderInspector();};
+$('#theme-tab').onclick=()=>{inspectorTab='theme';renderInspector();};
 $('#deselect').onclick=()=>{selectedId=selectedVariable=null;renderInspector();player.select('');};
 $('#screen-picker').onchange=event=>{screenId=event.target.value;selectedId=selectedVariable=null;renderAll();};$('#add-screen').onclick=addScreen;
 $('#design-mode').onclick=()=>{mode='design';if(findNode(project,selectedId)?.screen.id!==screenId)selectedId=null;renderAll();};$('#test-mode').onclick=()=>{mode='test';refreshPlayer();};$('#reset-test').onclick=()=>{player.reset();screenId=project.home;renderScreensPicker();};
 $('#undo').onclick=()=>{if(!history.length)return;lastEdit='';future.push(JSON.stringify(project));project=JSON.parse(history.pop());if(!project.screens.some(s=>s.id===screenId))screenId=project.home;if(!findNode(project,selectedId))selectedId=null;if(!project.variables.some(v=>v.name===selectedVariable))selectedVariable=null;save();renderAll();};
 $('#redo').onclick=()=>{if(!future.length)return;lastEdit='';history.push(JSON.stringify(project));project=JSON.parse(future.pop());if(!project.screens.some(s=>s.id===screenId))screenId=project.home;save();renderAll();};
 document.addEventListener('keydown',event=>{if((event.ctrlKey||event.metaKey)&&event.key.toLowerCase()==='z'&&!['INPUT','TEXTAREA'].includes(document.activeElement.tagName)){event.preventDefault();(event.shiftKey?$('#redo'):$('#undo')).click();}});
-$('#new-project').onclick=()=>$('#new-dialog').showModal();
+$('#new-project').onclick=()=>{$('#new-project-error').hidden=true;$('#new-dialog').showModal();};
+$('#projects').onclick=()=>{$('#projects-error').hidden=true;try{archiveProject(localStorage,project);}catch(error){projectError(error);}renderProjectLibrary();$('#projects-dialog').showModal();};
+$('#projects-new').onclick=()=>{$('#projects-dialog').close();$('#new-project').click();};
 let previewPlayer;
 $('#preview-app').onclick=()=>{const root=document.createElement('main');root.className='app-player';$('#preview-host').replaceChildren(root);$('#preview-dialog').showModal();previewPlayer=createPlayer(root,project);};
 $('#preview-reset').onclick=()=>previewPlayer?.reset();
@@ -254,7 +292,7 @@ function showState(title,data){$('#state-title').textContent=title;$('#state-con
 $('#test-state').onclick=()=>showState('État du test',lastState);$('#issues-button').onclick=()=>showState('Liaisons à vérifier',issues());
 function download(content,type,name){const url=URL.createObjectURL(new Blob([content],{type})),a=document.createElement('a');a.href=url;a.download=name;a.click();setTimeout(()=>URL.revokeObjectURL(url),1000);}
 $('#backup').onclick=()=>download(JSON.stringify(project,null,2),'application/json',(project.name||'project')+'.json');$('#import').onclick=()=>$('#import-file').click();
-$('#import-file').onchange=async event=>{const file=event.target.files[0];if(!file)return;try{if(file.size>30*1024*1024)throw Error('Ce fichier est trop volumineux.');const next=JSON.parse(await file.text());if(!validateProject(next))throw Error('Choisis un projet JSON de cet éditeur.');if(!confirm('Remplacer le projet ouvert ?'))return;snapshot();project=next;screenId=project.home;selectedId=selectedVariable=null;mode='design';save();renderAll();}catch(error){$('#save-status').textContent=error instanceof SyntaxError?'Ce fichier ne contient pas un projet JSON valide.':error.message;}finally{event.target.value='';}};
+$('#import-file').onchange=async event=>{const file=event.target.files[0];if(!file)return;try{if(file.size>30*1024*1024)throw Error('Ce fichier est trop volumineux.');const next=JSON.parse(await file.text());if(!validateProject(next))throw Error('Choisis un projet JSON de cet éditeur.');activateProject(next,{undoable:true});}catch(error){$('#save-status').textContent=error instanceof SyntaxError?'Ce fichier ne contient pas un projet JSON valide.':error.message;}finally{event.target.value='';}};
 $('#export-app').onclick=async()=>{const button=$('#export-app');button.disabled=true;try{const output=structuredClone(project),images=new Map();const collect=obj=>{if(!obj||typeof obj!=='object')return;for(const value of Object.values(obj))if(typeof value==='string'&&/^assets\/[a-z0-9-]+\.(jpg|png|webp)$/i.test(value))images.set(value,null);else if(value&&typeof value==='object')collect(value);};collect(output);await Promise.all([...images.keys()].map(async url=>{const response=await fetch(url);if(!response.ok)throw Error('Image introuvable : '+url);const data=await new Promise((resolve,reject)=>{const r=new FileReader();r.onload=()=>resolve(r.result);r.onerror=reject;response.arrayBuffer().then(buffer=>r.readAsDataURL(new Blob([buffer],{type:url.endsWith('.png')?'image/png':url.endsWith('.webp')?'image/webp':'image/jpeg'}))).catch(reject);});images.set(url,data);}));const replace=obj=>{for(const [k,v]of Object.entries(obj))if(typeof v==='string'&&images.has(v))obj[k]=images.get(v);else if(v&&typeof v==='object')replace(v);};replace(output);const json=JSON.stringify(output).replace(/</g,'\\u003c').replace(/\u2028/g,'\\u2028').replace(/\u2029/g,'\\u2029');const html=`<!doctype html><html lang="fr"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta http-equiv="Content-Security-Policy" content="default-src 'none'; img-src data:; style-src 'unsafe-inline'; script-src 'unsafe-inline'; connect-src 'none'; base-uri 'none'"><title>${esc(output.name)}</title><style>${playerCSS}body{margin:0;background:#eee4f3;display:grid;place-items:center;min-height:100vh}.app-player{width:min(100vw,420px);height:100dvh;max-height:1000px;box-shadow:0 0 30px #29173f20}</style></head><body><main id="application" class="app-player"></main><script>(${createPlayer.toString()})(document.querySelector('#application'),${json},{persist:true});</script></body></html>`;download(html,'text/html',(project.name.normalize('NFD').replace(/[\u0300-\u036f]/g,'').replace(/[^a-zA-Z0-9]+/g,'-')||'application')+'.html');$('#save-status').textContent='Application HTML exportée, images incluses.';}catch(error){$('#save-status').textContent='Export : '+error.message;}finally{button.disabled=false;}};
 player=createPlayer($('#player'),project,{design:true,onSelect:selectNode,onChange:detail=>{lastState=detail;if(mode==='test'&&detail.screen){const changed=screenId!==detail.screen;screenId=detail.screen;if(changed){selectedId=selectedVariable=null;renderScreensPicker();renderLibrary();renderInspector();}$('#screen-picker').value=screenId;$('#canvas-status').textContent='Test · '+currentScreen().name;}}});
 $('#share-app').onclick=async()=>{

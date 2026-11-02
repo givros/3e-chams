@@ -1,0 +1,12 @@
+import test from 'node:test';
+import assert from 'node:assert/strict';
+import {blankProject,component} from '../src/studio-model.js';
+import {saveProject,listProjects,switchProject,removeProject,activeProjectKey,projectLibraryKey} from '../src/studio-projects.js';
+const storage=()=>{const data=new Map();return {getItem:k=>data.get(k)??null,setItem:(k,v)=>data.set(k,v),data};};
+test('multiple applications retain independent snapshots',()=>{const s=storage(),a=blankProject(),b=blankProject();a.name='A';b.name='B';saveProject(s,a);switchProject(s,a,b);a.name='Edited elsewhere';assert.equal(listProjects(s).length,2);assert.equal(listProjects(s).find(r=>r.project.id===a.id).project.name,'A');assert.equal(JSON.parse(s.getItem(activeProjectKey)).id,b.id);});
+test('a save updates its existing library record instead of duplicating it',()=>{const s=storage(),p=blankProject();saveProject(s,p);p.name='Renamed';saveProject(s,p);assert.equal(listProjects(s).length,1);assert.equal(listProjects(s)[0].project.name,'Renamed');});
+test('malformed library entries cannot crash project listing',()=>{const s=storage();s.setItem(projectLibraryKey,'[{"project":null},null]');assert.deepEqual(listProjects(s),[]);s.setItem(projectLibraryKey,'bad json');assert.deepEqual(listProjects(s),[]);});
+test('quota errors while archiving do not replace the current application',()=>{const s=storage(),a=blankProject(),b=blankProject();saveProject(s,a);const set=s.setItem;s.setItem=(key,value)=>{if(key===projectLibraryKey)throw Error('Quota');set(key,value);};assert.throws(()=>switchProject(s,a,b));assert.equal(JSON.parse(s.getItem(activeProjectKey)).id,a.id);});
+test('active work is still saved when the library itself is full',()=>{const s=storage(),p=blankProject(),set=s.setItem;s.setItem=(key,value)=>{if(key===projectLibraryKey)throw Error('Quota');set(key,value);};assert.equal(saveProject(s,p).librarySaved,false);assert.equal(JSON.parse(s.getItem(activeProjectKey)).id,p.id);});
+test('deleting an inactive application retains the active project',()=>{const s=storage(),a=blankProject(),b=blankProject();saveProject(s,a);switchProject(s,a,b);removeProject(s,a.id,b.id);assert.equal(listProjects(s).length,1);assert.throws(()=>removeProject(s,b.id,b.id));});
+test('project snapshots retain nodes, actions and images',()=>{const s=storage(),p=blankProject(),n=component('button',p);n.events.click=[{type:'toast',value:{kind:'literal',value:'Hello'}}];p.screens[0].nodes.push(n);saveProject(s,p);assert.deepEqual(listProjects(s)[0].project,p);});
