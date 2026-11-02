@@ -1,4 +1,4 @@
-import {component,uid,variable} from './studio-model.js';
+import {component,uid,variable,blankProject} from './studio-model.js';
 export const screenTemplates=[
  {id:'welcome',name:'Accueil',description:'Photo, titre et bouton',image:'burger'},
  {id:'catalog',name:'Carte du restaurant',description:'Articles et ajout au panier',image:'pizza'},
@@ -16,7 +16,11 @@ export const screenTemplates=[
  {id:'favorites',name:'Mes favoris',description:'Choisir, enregistrer et retirer des favoris',icon:'♥',color:'#ffe1ec'},
  {id:'booking',name:'Réservation',description:'Nom, créneau et validation du formulaire',icon:'▦',color:'#eee3fc'},
  {id:'scoreboard',name:'Match',description:'Deux équipes, leurs scores et remise à zéro',icon:'VS',color:'#ffe7a9'},
- {id:'calculator',name:'Calculatrice',description:'Deux nombres et un résultat automatique',icon:'×',color:'#e1eaff'}
+ {id:'calculator',name:'Calculatrice',description:'Deux nombres et un résultat automatique',icon:'×',color:'#e1eaff'},
+ {id:'search-catalog',name:'Catalogue avec recherche',description:'Rechercher un article et trier les prix',image:'pizza'},
+ {id:'review',name:'Donner son avis',description:'Étoiles, commentaire et vérification',icon:'★',color:'#ffe7a9'},
+ {id:'goal',name:'Objectif personnel',description:'Curseur et barre de progression reliés',icon:'▰',color:'#d8f2e7'},
+ {id:'faq',name:'Questions fréquentes',description:'Réponses dans des volets dépliants',icon:'⌄',color:'#eee3fc'}
 ];
 export function addScreenTemplate(project,id){
  const template=screenTemplates.find(t=>t.id===id);if(!template)throw Error('Unknown screen template');
@@ -74,8 +78,19 @@ export function addScreenTemplate(project,id){
  if(id==='welcome'){add('image').props.src='assets/burger.jpg';add('text','Bienvenue dans mon restaurant');const b=add('button','Voir la carte');b.events.click=[{type:'toast',value:{kind:'literal',value:'Choisis la destination du bouton dans Actions.'}}];}
  if(id==='catalog')add('products');
  if(id==='basket')add('cart');
- if(id==='contact'){add('input').props.label='Ton prénom';add('textarea').props.label='Ton message';const b=add('button','Envoyer');b.events.click=[{type:'toast',value:{kind:'literal',value:'Message simulé envoyé.'}}];}
+ if(id==='contact'){const form=add('form');form.props.title='Nous contacter';const text=component('textarea',project);text.props.label='Ton message';text.props.required=true;form.children.splice(1,0,text);form.children.at(-1).props.text='Envoyer';}
  if(id==='profile'){add('input').props.label='Ton prénom';add('select').props.label='Ton plat préféré';screen.nodes.at(-1).props.options='Pizza\nBurger\nSushis';add('toggle').props.label='Recevoir les nouveautés';}
+ if(id==='search-catalog'){
+  const search=add('search'),products=add('products');products.props.searchVariable=search.props.variable;products.props.sortBy='priceAsc';
+  project.variables.find(v=>v.name===products.props.variable).initial=[{name:'Pizza',price:11,image:'assets/pizza.jpg'},{name:'Burger',price:9,image:'assets/burger.jpg'},{name:'Tacos',price:8.5,image:'assets/tacos.jpg'}];
+  products.events.item.push(message('Article ajouté au panier.'));
+ }
+ if(id==='review'){const rating=add('rating');rating.props.required=true;add('textarea').props.label='Ton commentaire';button('Envoyer mon avis',[{type:'validate'},message('Merci pour ton avis (simulation).')]);}
+ if(id==='goal'){
+  const slider=add('range');slider.props.label='Objectif atteint';slider.props.max=10;project.variables.find(v=>v.name===slider.props.variable).initial=0;
+  const progress=add('progress'),unused=progress.props.variable;progress.props.variable=slider.props.variable;progress.props.max=10;project.variables=project.variables.filter(v=>v.name!==unused);
+ }
+ if(id==='faq')for(const [question,answer]of [['Comment modifier mon appli ?','Sélectionne un élément dans l’éditeur, puis change ses propriétés.'],['Comment ajouter un écran ?','Ouvre Écrans ou choisis un modèle.'],['Comment tester mon appli ?','Utilise Tester, puis essaie les boutons et la navigation.']]){const section=add('accordion'),text=component('text',project);section.props.title=question;text.props.text=answer;section.children.push(text);}
  if(id==='catalog'){
   const basket=project.screens.find(s=>s.nodes.some(n=>n.type==='cart'));
   if(basket){const b=add('button','Voir mon panier');b.events.click=[{type:'navigate',screen:basket.id}];const back=component('button',project);back.props.text='Retour à la carte';back.events.click=[{type:'navigate',screen:screen.id}];basket.nodes.push(back);}
@@ -84,4 +99,12 @@ export function addScreenTemplate(project,id){
  if(id==='catalog')for(const s of project.screens)for(const n of s.nodes)if(n.type==='button'&&n.props.text==='Voir la carte'&&n.events.click[0]?.type==='toast')n.events.click=[{type:'navigate',screen:screen.id}];
  if(id==='welcome'){const target=project.screens.find(s=>s.nodes.some(n=>n.type==='products'));if(target)screen.nodes.at(-1).events.click=[{type:'navigate',screen:target.id}];}
  project.screens.push(screen);if(firstContent)project.home=screen.id;return screen;
+}
+
+export function mobileAppTemplate(){
+ const project=blankProject();project.name='Mon appli';project.screens=[];
+ for(const id of ['welcome','catalog','basket','profile'])addScreenTemplate(project,id);
+ const icons=['⌂','▦','▣','☺'];project.screens.forEach((s,i)=>s.menuIcon=icons[i]);
+ project.navigation={enabled:true,style:'tabs',showHeader:true,showBack:true,items:project.screens.map(s=>s.id)};
+ return project;
 }

@@ -1,9 +1,10 @@
 export const catalog=[
  ['heading','Titre','T'],['text','Texte','¶'],['image','Image','▧'],['button','Bouton','↗'],['back','Retour','←'],
  ['input','Saisie','⌨'],['number','Nombre','123'],['textarea','Texte long','≡'],['select','Choix','▾'],['toggle','Interrupteur','◉'],
+ ['search','Recherche','⌕'],['date','Date','▦'],['range','Curseur','↔'],['rating','Étoiles','★'],['progress','Progression','▰'],['badge','Étiquette','●'],['form','Formulaire','▤'],['accordion','Volet dépliant','⌄'],
  ['container','Groupe d’éléments','□'],['list','Liste','☷'],['products','Liste de produits','▦'],['cart','Panier','＋'],['divider','Séparateur','—'],['spacer','Espacement','↕']
 ].map(([type,label,icon])=>({type,label,icon}));
-export const actionTypes=[['set','Remplacer une donnée'],['increment','Ajouter ou retirer un nombre'],['append','Ajouter à une liste'],['remove','Retirer de la liste'],['navigate','Changer d’écran'],['back','Revenir à l’écran précédent'],['if','Si / sinon'],['toast','Afficher un message'],['cartAdd','Ajouter au panier'],['reset','Réinitialiser les données']];
+export const actionTypes=[['set','Remplacer une donnée'],['increment','Ajouter ou retirer un nombre'],['append','Ajouter à une liste'],['remove','Retirer de la liste'],['navigate','Changer d’écran'],['back','Revenir à l’écran précédent'],['validate','Vérifier les champs'],['if','Si / sinon'],['toast','Afficher un message'],['cartAdd','Ajouter au panier'],['reset','Réinitialiser les données']];
 export const uid=prefix=>prefix+'_'+crypto.randomUUID().slice(0,8);
 export function blankProject(){const screen=uid('screen');return {version:3,id:uid('app'),name:'Mon application',home:screen,theme:{primary:'#6339c7',background:'#fff8ef',text:'#29173f',radius:12},screens:[{id:screen,name:'Accueil',background:'#fff8ef',nodes:[]}],variables:[]};}
 export function variable(p,name,type='text',initial=''){
@@ -17,9 +18,19 @@ export function variable(p,name,type='text',initial=''){
 export function component(type,p){
  const node={id:uid('node'),type,name:catalog.find(c=>c.type===type)?.label||type,props:{text:type==='heading'?'Mon titre':type==='button'?'Mon bouton':'Mon texte'},style:{padding:12,gap:10,fontSize:type==='heading'?26:14,align:'left',width:'100%',radius:10,color:'',background:''},events:{click:[],change:[],item:[]},children:[]};
  if(type==='image')Object.assign(node.props,{src:'assets/pizza.jpg',alt:'Image',height:180,fit:'cover'});
- if(['input','number','textarea','toggle','select'].includes(type)){
-  const kind=type==='number'?'number':type==='toggle'?'boolean':'text';const v=variable(p,type==='number'?'number':type==='toggle'?'enabled':'input',kind,kind==='number'?0:kind==='boolean'?false:'');
+ if(['input','number','textarea','toggle','select','search','date','range','rating'].includes(type)){
+  const kind=['number','range','rating'].includes(type)?'number':type==='toggle'?'boolean':'text';const v=variable(p,kind==='number'?'number':type==='toggle'?'enabled':type==='search'?'search':'input',kind,kind==='number'?(type==='range'?50:0):kind==='boolean'?false:'');
   Object.assign(node.props,{label:type==='toggle'?'Activer':type==='number'?'Nombre':'Texte à saisir',placeholder:'Saisir une valeur',variable:v.name,options:'Premier choix\nDeuxième choix'});
+ }
+ if(type==='search')Object.assign(node.props,{label:'Rechercher',placeholder:'Un article, un nom…'});
+ if(type==='date')Object.assign(node.props,{label:'Choisir une date',placeholder:''});
+ if(type==='range')Object.assign(node.props,{label:'Valeur',min:0,max:100,step:1});
+ if(type==='rating')Object.assign(node.props,{label:'Ton avis',max:5});
+ if(type==='progress'){const v=variable(p,'progress','number',0);Object.assign(node.props,{label:'Progression',variable:v.name,max:100});}
+ if(type==='badge')node.props.text='Nouveau';
+ if(type==='accordion')Object.assign(node.props,{title:'En savoir plus',open:false});
+ if(type==='form'){
+  node.props.title='Mon formulaire';const entry=component('input',p),submit=component('button',p);entry.props.label='Ton prénom';entry.props.required=true;submit.props.text='Valider';submit.events.click=[{type:'validate',form:node.id},{type:'toast',value:{kind:'literal',value:'Formulaire validé (simulation).'}}];node.children=[entry,submit];
  }
  if(type==='container')Object.assign(node.props,{direction:'column'});
  if(type==='list'){const v=variable(p,'items','list',['Premier élément']);Object.assign(node.props,{variable:v.name,itemText:'{{item.name}}',removable:true,itemButton:'',empty:'Liste vide'});}
@@ -36,7 +47,11 @@ export function component(type,p){
 }
 export function walk(p,fn){for(const s of p.screens){const visit=(nodes,parent)=>{for(const n of nodes){fn(n,s,nodes,parent);visit(n.children||[],n);}};visit(s.nodes,null);}}
 export function findNode(p,id){let result;walk(p,(node,screen,siblings,parent)=>{if(node.id===id)result={node,screen,siblings,parent};});return result;}
-export function duplicateNode(node){const copy=structuredClone(node);const visit=n=>{n.id=uid('node');for(const child of n.children||[])visit(child);};visit(copy);return copy;}
+export function duplicateNode(node){
+ const copy=structuredClone(node),ids=new Map();const visit=n=>{const old=n.id;n.id=uid('node');ids.set(old,n.id);for(const child of n.children||[])visit(child);};visit(copy);
+ const actions=list=>{for(const a of list||[]){if(ids.has(a.form))a.form=ids.get(a.form);if(a.type==='if'){actions(a.then);actions(a.else);}}};
+ const remap=n=>{Object.values(n.events||{}).forEach(actions);(n.children||[]).forEach(remap);};remap(copy);return copy;
+}
 export function operand(kind='literal',value=''){return kind==='variable'?{kind,name:value}:kind==='math'?{kind,op:'add',a:{kind:'literal',value:0},b:{kind:'literal',value:1}}:{kind,value};}
 export function action(type,p){const number=p.variables.find(v=>v.type==='number'),list=p.variables.find(v=>v.type==='list'),any=p.variables[0];return {
  type,variable:(type==='increment'?number:type==='append'||type==='remove'||type==='cartAdd'?list:any)?.name||'',

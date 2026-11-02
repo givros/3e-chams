@@ -9,7 +9,7 @@ export function columnLayout(project,count=2){
 
 export function moveNode(project,nodeId,destinationId,screenId){
  const source=findNode(project,nodeId),target=destinationId==='root'?null:findNode(project,destinationId),screen=project.screens.find(s=>s.id===screenId);
- if(!source||destinationId!=='root'&&target?.node.type!=='container'||destinationId==='root'&&!screen)return false;
+ if(!source||destinationId!=='root'&&!['container','form','accordion'].includes(target?.node.type)||destinationId==='root'&&!screen)return false;
  const contains=n=>n.id===destinationId||(n.children||[]).some(contains);
  if(contains(source.node))return false;
  source.siblings.splice(source.siblings.indexOf(source.node),1);

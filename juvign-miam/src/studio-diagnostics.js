@@ -15,6 +15,7 @@ export function projectIssues(project){
    if(v?.type==='computed')add(label,'un calcul ne peut pas être modifié par une action.');
   }
   if(a.type==='navigate'&&!project.screens.some(s=>s.id===a.screen))add(label,'choisis un écran de destination.');
+  if(a.type==='validate'&&a.form){let found=false;walk(project,n=>{if(n.id===a.form&&n.type==='form')found=true;});if(!found)add(label,'le formulaire à vérifier a été supprimé.');}
   if(['cartAdd','remove'].includes(a.type)&&event!=='item')add(label,'cette action utilise l’événement « élément cliqué » d’une liste.');
   operand(a.value,label);
   if(a.type==='if'){for(const c of a.conditions||[]){operand(c.left,label);operand(c.right,label);}actions(a.then,label,event);actions(a.else,label,event);}
@@ -22,9 +23,10 @@ export function projectIssues(project){
  for(const v of project.variables)if(v.type==='computed')operand(v.formula,v.label||v.name);
  walk(project,(n,s)=>{
   const label=s.name+' / '+n.name;
-  const type=['list','products','cart'].includes(n.type)?'list':n.type==='number'?'number':n.type==='toggle'?'boolean':['input','textarea','select'].includes(n.type)?'text':null;
+  const type=['list','products','cart'].includes(n.type)?'list':['number','range','rating','progress'].includes(n.type)?'number':n.type==='toggle'?'boolean':['input','textarea','select','search','date'].includes(n.type)?'text':null;
   if(type)binding(n.props.variable,label,type);
-  for(const key of ['textVariable','visibleVariable','discountVariable'])if(n.props[key])binding(n.props[key],label,key==='discountVariable'?'number':null);
+  for(const key of ['textVariable','visibleVariable','discountVariable','searchVariable'])if(n.props[key])binding(n.props[key],label,key==='discountVariable'?'number':key==='searchVariable'?'text':null);
+  if(n.type==='range'&&Number(n.props.max)<=Number(n.props.min))add(label,'le maximum du curseur doit être supérieur au minimum.');
   for(const [event,list]of Object.entries(n.events))actions(list,label,event);
  });
  return [...messages];
