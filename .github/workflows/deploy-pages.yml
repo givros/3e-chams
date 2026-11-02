@@ -28,6 +28,13 @@ jobs:
         run: npm test
       - name: Test no-code studio
         run: npm --prefix juvign-miam test
+      - name: Install browser test tools
+        run: npm --prefix juvign-miam ci
+      - name: Install Chromium
+        working-directory: juvign-miam
+        run: npx playwright install --with-deps chromium
+      - name: Check editor, shared apps and offline exports
+        run: npm --prefix juvign-miam run test:browser
       - name: Check robotics workshop
         env:
           NODE_OPTIONS: --dns-result-order=ipv4first

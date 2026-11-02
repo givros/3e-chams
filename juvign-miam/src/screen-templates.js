@@ -104,7 +104,20 @@ export function addScreenTemplate(project,id){
 export function mobileAppTemplate(){
  const project=blankProject();project.name='Mon appli';project.screens=[];
  for(const id of ['welcome','catalog','basket','profile'])addScreenTemplate(project,id);
- const icons=['⌂','▦','▣','☺'];project.screens.forEach((s,i)=>s.menuIcon=icons[i]);
+ const icons=['⌂','▦','▣','☺'],labels=['Accueil','Carte','Panier','Profil'];project.screens.forEach((s,i)=>{s.menuIcon=icons[i];s.menuLabel=labels[i];});
  project.navigation={enabled:true,style:'tabs',showHeader:true,showBack:true,items:project.screens.map(s=>s.id)};
+ const catalog=project.screens[1],products=catalog.nodes.find(n=>n.type==='products'),cart=project.screens[2].nodes.find(n=>n.type==='cart');
+ project.variables.find(v=>v.name===products.props.variable).initial=[{name:'Burger',price:9,image:'assets/burger.jpg'},{name:'Pizza',price:11,image:'assets/pizza.jpg'},{name:'Tacos',price:8.5,image:'assets/tacos.jpg'}];
+ const search=component('search',project);catalog.nodes.splice(1,0,search);products.props.searchVariable=search.props.variable;
+ const receipt=variable(project,'Dernière commande','list',[]),total=variable(project,'Montant des articles','number',0);
+ receipt.fields=[{name:'name',label:'Article',type:'text'},{name:'price',label:'Prix',type:'number'},{name:'quantity',label:'Quantité',type:'number'}];
+ const confirmation={id:uid('screen'),name:'Commande enregistrée',background:project.theme.background,menuHidden:true,nodes:[]};
+ const heading=component('heading',project);heading.props.text='Commande enregistrée';
+ const note=component('text',project);note.props.text='Simulation : aucun paiement ni livraison.';
+ const summary=component('list',project),unused=summary.props.variable;project.variables=project.variables.filter(v=>v.name!==unused);Object.assign(summary.props,{variable:receipt.name,itemText:'{{item.quantity}} × {{item.name}}',removable:false,empty:'Aucune commande enregistrée.'});
+ const amount=component('text',project);Object.assign(amount.props,{text:'Articles : ',textVariable:total.name,textFormat:'money'});
+ const again=component('button',project);again.props.text='Retour à la carte';again.events.click=[{type:'navigate',screen:catalog.id}];
+ confirmation.nodes=[heading,note,summary,amount,again];project.screens.push(confirmation);
+ cart.events.click=[{type:'set',variable:receipt.name,value:{kind:'variable',name:cart.props.variable}},{type:'set',variable:total.name,value:{kind:'cartTotal',name:cart.props.variable}},{type:'set',variable:cart.props.variable,value:{kind:'literal',value:[]}},{type:'navigate',screen:confirmation.id}];
  return project;
 }
