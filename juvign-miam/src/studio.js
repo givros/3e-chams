@@ -4,6 +4,7 @@ import {screenTemplates,addScreenTemplate} from './screen-templates.js';
 import {encodeProject} from './share.js';
 import {projectIssues} from './studio-diagnostics.js';
 import {columnLayout,moveNode} from './studio-layout.js';
+import {navigationSettings,setNavigation,cleanNavigation} from './studio-navigation.js';
 const $=s=>document.querySelector(s),esc=v=>String(v??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 const photoNames={burger:'Burger',pizza:'Pizza',sushi:'Sushis',tacos:'Tacos',fries:'Frites',drink:'Boisson'};
 const typeLabels={text:'Texte',number:'Nombre',boolean:'Oui / non',list:'Liste',computed:'Calcul'};
@@ -15,7 +16,7 @@ let screenId=project.home,selectedId=null,selectedVariable=null,libraryTab='comp
 const style=document.createElement('style');style.textContent=playerCSS;document.head.append(style);
 function save(){try{localStorage.setItem(storageKey,JSON.stringify(project));$('#save-status').textContent='Enregistré sur cet ordinateur';}catch{$('#save-status').textContent='Stockage plein : télécharge le projet JSON.';}$('#undo').disabled=!history.length;$('#redo').disabled=!future.length;}
 function snapshot(key=''){const now=Date.now();if(!key||key!==lastEdit||now-lastEditTime>900){history.push(JSON.stringify(project));if(history.length>30)history.shift();}lastEdit=key;lastEditTime=now;future=[];}
-function commit(mutator,{redraw=true,key=''}={}){snapshot(key);mutator();save();if(redraw)renderAll();else{renderScreensPicker();renderLibrary();refreshPlayer();renderIssues();}}
+function commit(mutator,{redraw=true,key=''}={}){snapshot(key);const screens=new Set(project.screens.map(s=>s.id));mutator();if(project.navigation?.enabled)for(const s of project.screens)if(!screens.has(s.id))project.navigation.items.push(s.id);cleanNavigation(project);save();if(redraw)renderAll();else{renderScreensPicker();renderLibrary();refreshPlayer();renderIssues();}}
 function safeGet(object,path){return path.split('.').reduce((value,key)=>['__proto__','constructor','prototype'].includes(key)?undefined:value?.[key],object);}
 function safeSet(object,path,value){const keys=path.split('.');if(keys.some(k=>['__proto__','constructor','prototype'].includes(k)))return;for(const key of keys.slice(0,-1)){if(object[key]===undefined)object[key]={};object=object[key];}object[keys.at(-1)]=value;}
 function selected(){return selectedVariable?project.variables.find(v=>v.name===selectedVariable):findNode(project,selectedId)?.node;}
@@ -37,6 +38,10 @@ function renderLibrary(){
  if(libraryTab==='screens')html=`<div class="section-label">Écrans</div>${project.screens.map(s=>`<div class="screen-row ${s.id===screenId?'active':''}"><button data-open-screen="${s.id}">${s.id===project.home?'⌂ ':''}${esc(s.name)}</button><button data-screen-settings="${s.id}" aria-label="Réglages de ${esc(s.name)}">⚙</button></div>`).join('')}<button class="outline-button" data-add-screen>＋ Ajouter un écran</button><div class="section-label" style="margin-top:25px">Structure</div>${treeHTML(currentScreen().nodes)}`;
  if(libraryTab==='data')html=`<div class="section-label">Variables de l’application</div>${project.variables.map(v=>`<button class="data-row" data-select-variable="${v.name}"><strong>${esc(v.label||v.name)}</strong><span class="type-chip">${esc(typeLabels[v.type])}</span></button>`).join('')}<div class="data-create"><label class="field-label">Nouvelle variable</label><input id="variable-name" placeholder="Ex. score, nom, produits"><select id="variable-type">${[['text','Texte'],['number','Nombre'],['boolean','Oui / non'],['list','Liste'],['computed','Calcul']].map(([v,l])=>option(v,l,'text')).join('')}</select><button class="solid-button" data-create-variable>Créer</button></div>`;
  if(libraryTab==='actions')html=`<div class="section-label">Blocs d’action</div><div class="action-palette">${actionTypes.map(([type,label])=>`<button class="${type==='if'?'if-block':''}" draggable="true" data-add-action="${type}">${type==='if'?'◇':'↳'} ${label}</button>`).join('')}</div><p class="help">Sélectionne un composant, puis dépose les blocs dans son événement. Un clic ajoute le bloc à la fin.</p>`;
+ if(libraryTab==='screens'){
+  const nav=navigationSettings(project);
+  html+=`<section class="navigation-config"><div class="section-label">Menu de l’application</div><label class="toggle-row">Afficher un menu<input type="checkbox" data-navigation-prop="enabled" ${nav.enabled?'checked':''}></label>${nav.enabled?`<label class="field-label">Présentation</label><select class="full" data-navigation-prop="style">${option('tabs','Onglets en bas',nav.style)}${option('drawer','Menu latéral ☰',nav.style)}</select><label class="toggle-row">Barre de titre<input type="checkbox" data-navigation-prop="showHeader" ${nav.showHeader?'checked':''}></label><label class="toggle-row">Flèche de retour<input type="checkbox" data-navigation-prop="showBack" ${nav.showBack?'checked':''}></label><label class="field-label">Écrans dans le menu</label>${project.screens.map(s=>`<label class="nav-screen-choice"><input type="checkbox" data-navigation-item="${s.id}" ${nav.items.includes(s.id)?'checked':''}><span>${esc(s.name)}</span></label>`).join('')}`:''}</section>`;
+ }
  $('#library-content').innerHTML=html;
 }
 function operandUI(path,v={kind:'literal',value:''},depth=0){
@@ -67,7 +72,11 @@ function actionsUI(list,path,depth=0){
 }
 function renderNodeProps(n){
  let html=field('Nom du composant',input('name',n.name));const x=n.props;
- if(['heading','text','button'].includes(n.type))html+=field('Texte',`<textarea data-path="props.text">${esc(x.text)}</textarea>`)+field('Afficher une donnée après le texte',selectInput('props.textVariable',x.textVariable||'',variablesOptions()))+`<details class="advanced"><summary>Texte avec plusieurs données</summary><select class="inline-pick" data-insert-binding="props.text"><option value="">Insérer une donnée…</option>${project.variables.map(v=>option(v.name,v.label||v.name,'')).join('')}</select><p class="help">Les données entre doubles accolades seront remplacées à l’exécution.</p></details>`;
+ if(['heading','text','button','back'].includes(n.type))html+=field('Texte',`<textarea data-path="props.text">${esc(x.text)}</textarea>`)+field('Afficher une donnée après le texte',selectInput('props.textVariable',x.textVariable||'',variablesOptions()))+`<details class="advanced"><summary>Texte avec plusieurs données</summary><select class="inline-pick" data-insert-binding="props.text"><option value="">Insérer une donnée…</option>${project.variables.map(v=>option(v.name,v.label||v.name,'')).join('')}</select><p class="help">Les données entre doubles accolades seront remplacées à l’exécution.</p></details>`;
+ if(['button','back'].includes(n.type)){
+  const destination=n.events.click.find(a=>a.type==='navigate'||a.type==='back');
+  html+=field('Au clic, ouvrir',`<select class="full" data-button-navigation>${option('','Aucun écran (autres actions)',destination?.screen||destination?.type||'')}${option('back','← L’écran précédent',destination?.type)}${project.screens.map(s=>option(s.id,s.name,destination?.screen)).join('')}</select>`);
+ }
  if(n.type==='image')html+=`<img class="selected-image" src="${esc(x.src)}" alt="">${field('Texte alternatif',input('props.alt',x.alt||''))}${field('Hauteur',input('props.height',x.height,'number','min="20" max="1200"'))}${field('Cadrage',selectInput('props.fit',x.fit,[['cover','Remplir'],['contain','Afficher en entier']]))}<div class="asset-bank">${['burger','pizza','sushi','tacos','fries','drink'].map(id=>`<button data-pick-image="assets/${id}.jpg" class="${x.src==='assets/'+id+'.jpg'?'selected':''}"><img src="assets/${id}.jpg" alt="${photoNames[id]}"></button>`).join('')}</div><button class="image-upload-button" data-upload-image>Importer une image</button>`;
  if(['input','number','textarea','select','toggle'].includes(n.type))html+=field('Libellé',input('props.label',x.label||''))+field('Enregistrer la saisie dans',selectInput('props.variable',x.variable,variablesOptions(n.type==='number'?'number':n.type==='toggle'?'boolean':'text')))+(n.type==='toggle'?'':field('Texte indicatif',input('props.placeholder',x.placeholder||'')))+(n.type==='select'?field('Options (une par ligne)',`<textarea data-path="props.options">${esc(x.options)}</textarea>`):'');
  if(n.type==='container'){
@@ -114,6 +123,7 @@ function renderInspector(){
   $('#inspector-title').textContent=currentScreen().name;
   html=field('Nom de l’écran',`<input class="full" data-screen-prop="name" value="${esc(currentScreen().name)}">`)+field('Fond de l’écran',`<input class="full" type="color" data-screen-prop="background" value="${esc(currentScreen().background||project.theme.background)}">`)+`<button class="outline-button" data-set-home style="margin-top:15px">${project.home===screenId?'⌂ Écran de démarrage':'Définir comme écran de démarrage'}</button><hr class="mini-divider"><div class="section-label">Apparence de l’application</div>`+field('Couleur principale',`<input class="full" type="color" data-theme-prop="primary" value="${project.theme.primary}">`)+field('Couleur du texte',`<input class="full" type="color" data-theme-prop="text" value="${project.theme.text}">`)+field('Arrondi des boutons',`<input class="full" type="number" min="0" max="60" data-theme-prop="radius" value="${project.theme.radius}">`)+`<div class="prop-actions"><button data-duplicate-screen>Dupliquer l’écran</button><button data-delete-screen class="danger" ${project.screens.length===1?'disabled':''}>Supprimer l’écran</button></div>`;
  }
+ if(!n&&!selectedVariable)html+=`<details class="advanced"><summary>Nom et icône dans le menu</summary>${field('Nom court',`<input class="full" data-screen-prop="menuLabel" placeholder="${esc(currentScreen().name)}" value="${esc(currentScreen().menuLabel||'')}">`)}${field('Icône',`<select class="full" data-screen-prop="menuIcon">${[['⌂','Maison'],['▦','Grille'],['♥','Cœur'],['★','Étoile'],['☷','Liste'],['●','Rond'],['＋','Plus'],['☺','Profil'],['▣','Panier']].map(([v,l])=>option(v,v+' '+l,currentScreen().menuIcon||'●')).join('')}</select>`)}</details>`;
  $('#inspector-content').innerHTML=html;
 }
 function issues(){return projectIssues(project);}
@@ -134,6 +144,8 @@ function mutateProperty(input,redraw=false){const target=selected();if(!target)r
 }
 document.addEventListener('input',event=>{
  const el=event.target;if(el.matches('select'))return;
+ if(el.dataset.navigationProp){commit(()=>setNavigation(project,{[el.dataset.navigationProp]:el.checked}));return;}
+ if(el.dataset.navigationItem){commit(()=>{const nav=navigationSettings(project);setNavigation(project,{items:el.checked?[...nav.items,el.dataset.navigationItem]:nav.items.filter(id=>id!==el.dataset.navigationItem)});});return;}
  if(el.dataset.path)mutateProperty(el);
  if(el.dataset.columnLabel!==undefined&&selectedVariable)commit(()=>selected().fields[Number(el.dataset.columnLabel)].label=el.value,{redraw:false,key:'column-label-'+el.dataset.columnLabel});
  if(el.id==='project-name')commit(()=>project.name=el.value,{redraw:false,key:'project-name'});
@@ -144,6 +156,9 @@ document.addEventListener('input',event=>{
 function updateRecord(el){const v=selected();if(!v||v.type!=='list')return;const index=Number(el.dataset.recordField);const val=el.type==='number'?Number(el.value):el.dataset.recordType==='boolean'?el.value==='true':el.value;commit(()=>{if(el.dataset.recordKey){if(!v.initial[index]||typeof v.initial[index]!=='object')v.initial[index]={};v.initial[index][el.dataset.recordKey]=val;}else v.initial[index]=val;},{redraw:false,key:v.name+'.'+index+'.'+(el.dataset.recordKey||'')});}
 document.addEventListener('change',event=>{
  const el=event.target;
+ if(el.dataset.buttonNavigation!==undefined){const n=selected();if(!n)return;commit(()=>{n.events.click=n.events.click.filter(a=>!['navigate','back'].includes(a.type));if(el.value==='back')n.events.click.push({type:'back'});else if(project.screens.some(s=>s.id===el.value))n.events.click.push({type:'navigate',screen:el.value});});return;}
+ if(el.tagName==='SELECT'&&el.dataset.screenProp){commit(()=>currentScreen()[el.dataset.screenProp]=el.value,{redraw:false});return;}
+ if(el.tagName==='SELECT'&&el.dataset.navigationProp){commit(()=>setNavigation(project,{[el.dataset.navigationProp]:el.value}));return;}
  if(el.tagName==='SELECT'&&el.dataset.path)mutateProperty(el,true);
  if(el.tagName==='SELECT'&&el.dataset.recordField!==undefined)updateRecord(el);
  if(el.dataset.insertAction&&el.value)insertAction(el.value,el.dataset.insertAction);

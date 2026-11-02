@@ -9,3 +9,4 @@ header{gap:10px;padding-inline:16px}#project-name{width:135px;flex-shrink:1}#sav
 
 .screen-model-list{display:grid;gap:12px}.screen-model-list>button{padding:0;text-align:left;background:white;border:1px solid #dccce4;border-radius:8px;overflow:hidden}.screen-model-list img{display:block;width:100%;height:95px;object-fit:cover}.screen-model-list strong{display:block;padding:10px 11px 4px;font-size:13px}.screen-model-list span{display:block;padding:0 11px 12px;font-size:11px;color:#84658f;line-height:1.5}.screen-model-list>button:hover{border-color:#6339c7;background:#f8f1ff}
 .screen-model-list .model-icon{display:grid;place-items:center;height:85px;font-size:36px;color:#6339c7}
+.navigation-config{margin-top:24px;border-top:1px solid #dccce4;padding-top:18px}.nav-screen-choice{display:flex;align-items:center;gap:8px;font-size:12px;padding:9px 0}.nav-screen-choice input{accent-color:#6339c7}.nav-screen-choice span{overflow-wrap:anywhere}

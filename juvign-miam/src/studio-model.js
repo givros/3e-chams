@@ -1,9 +1,9 @@
 export const catalog=[
- ['heading','Titre','T'],['text','Texte','¶'],['image','Image','▧'],['button','Bouton','↗'],
+ ['heading','Titre','T'],['text','Texte','¶'],['image','Image','▧'],['button','Bouton','↗'],['back','Retour','←'],
  ['input','Saisie','⌨'],['number','Nombre','123'],['textarea','Texte long','≡'],['select','Choix','▾'],['toggle','Interrupteur','◉'],
  ['container','Groupe d’éléments','□'],['list','Liste','☷'],['products','Liste de produits','▦'],['cart','Panier','＋'],['divider','Séparateur','—'],['spacer','Espacement','↕']
 ].map(([type,label,icon])=>({type,label,icon}));
-export const actionTypes=[['set','Remplacer une donnée'],['increment','Ajouter ou retirer un nombre'],['append','Ajouter à une liste'],['remove','Retirer de la liste'],['navigate','Changer d’écran'],['if','Si / sinon'],['toast','Afficher un message'],['cartAdd','Ajouter au panier'],['reset','Réinitialiser les données']];
+export const actionTypes=[['set','Remplacer une donnée'],['increment','Ajouter ou retirer un nombre'],['append','Ajouter à une liste'],['remove','Retirer de la liste'],['navigate','Changer d’écran'],['back','Revenir à l’écran précédent'],['if','Si / sinon'],['toast','Afficher un message'],['cartAdd','Ajouter au panier'],['reset','Réinitialiser les données']];
 export const uid=prefix=>prefix+'_'+crypto.randomUUID().slice(0,8);
 export function blankProject(){const screen=uid('screen');return {version:3,id:uid('app'),name:'Mon application',home:screen,theme:{primary:'#6339c7',background:'#fff8ef',text:'#29173f',radius:12},screens:[{id:screen,name:'Accueil',background:'#fff8ef',nodes:[]}],variables:[]};}
 export function variable(p,name,type='text',initial=''){
@@ -31,6 +31,7 @@ export function component(type,p){
   const v=p.variables.find(v=>v.name==='cart'&&v.type==='list')||variable(p,'cart','list',[]);Object.assign(node.props,{variable:v.name,delivery:0,freeAt:0,discountVariable:'',checkout:'Confirmer',empty:'Panier vide'});node.events.click=[{type:'toast',value:{kind:'literal',value:'Commande simulée confirmée.'}}];
  }
  if(type==='spacer')node.props.height=30;
+ if(type==='back'){node.props.text='← Retour';node.events.click=[{type:'back'}];}
  return node;
 }
 export function walk(p,fn){for(const s of p.screens){const visit=(nodes,parent)=>{for(const n of nodes){fn(n,s,nodes,parent);visit(n.children||[],n);}};visit(s.nodes,null);}}
@@ -71,6 +72,7 @@ export function validateProject(p){
  if(!safeJSON(p))return false;
  if(!object(p)||p.version!==3||!identifier(p.id)||typeof p.name!=='string'||!object(p.theme)||!Array.isArray(p.screens)||!p.screens.length||!Array.isArray(p.variables))return false;
  if(!['primary','background','text'].every(k=>color(p.theme[k]))||!Number.isFinite(p.theme.radius))return false;
+ if(p.navigation!==undefined){const nav=p.navigation;if(!object(nav)||typeof nav.enabled!=='boolean'||!['tabs','drawer'].includes(nav.style)||!Array.isArray(nav.items)||!nav.items.every(identifier)||new Set(nav.items).size!==nav.items.length||['showHeader','showBack'].some(k=>nav[k]!==undefined&&typeof nav[k]!=='boolean'))return false;}
  const ids=new Set(),names=new Set();
  for(const v of p.variables){
   if(!object(v)||!dataName(v.name)||names.has(v.name)||typeof (v.label??v.name)!=='string'||!['text','number','boolean','list','computed'].includes(v.type))return false;
