@@ -19,7 +19,7 @@ try{
  browser=await chromium.launch({headless:true});page=await browser.newPage({viewport:{width:1440,height:900}});
  const errors=[];page.on('pageerror',error=>errors.push(error.message));await page.goto(url);
  await page.locator('[data-add-component="heading"]').waitFor();
- const suites=[['player-browser-audit','runAudit'],['navigation-browser-audit','runNavigationAudit'],['extended-components-browser-audit','runExtendedAudit'],['theme-browser-audit','runThemeAudit'],['templates-browser-audit','runTemplateAudit'],['detail-browser-audit','runDetailAudit'],['images-browser-audit','runImageAudit'],['mobile-flow-browser-audit','runMobileFlowAudit']];
+ const suites=[['player-browser-audit','runAudit'],['navigation-browser-audit','runNavigationAudit'],['extended-components-browser-audit','runExtendedAudit'],['theme-browser-audit','runThemeAudit'],['templates-browser-audit','runTemplateAudit'],['detail-browser-audit','runDetailAudit'],['images-browser-audit','runImageAudit'],['mobile-flow-browser-audit','runMobileFlowAudit'],['icons-browser-audit','runIconAudit']];
  let total=0;
  for(const [file,run]of suites){const result=await page.evaluate(async([file,run])=>(await import(`/tests/${file}.js`))[run](),[file,run]);console.log(`${file}: ${result.passed}/${result.total}`);if(result.failed.length)throw Error(JSON.stringify(result.failed));total+=result.total;}
  // Exercise editor controls as a student would, including their saved model.

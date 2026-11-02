@@ -20,6 +20,7 @@ export const screenTemplates=[
  {id:'search-catalog',name:'Catalogue avec recherche',description:'Rechercher un article et trier les prix',image:'pizza'},
  {id:'review',name:'Donner son avis',description:'Étoiles, commentaire et vérification',icon:'★',color:'#ffe7a9'},
  {id:'goal',name:'Objectif personnel',description:'Curseur et barre de progression reliés',icon:'▰',color:'#d8f2e7'},
+ {id:'settings',name:'Paramètres',description:'Mode sombre, préférences et remise à zéro',icon:'⚙',color:'#e1eaff'},
  {id:'faq',name:'Questions fréquentes',description:'Réponses dans des volets dépliants',icon:'⌄',color:'#eee3fc'}
 ];
 export function addScreenTemplate(project,id){
@@ -38,6 +39,19 @@ export function addScreenTemplate(project,id){
  const choose=(conditions,then,otherwise=[])=>({type:'if',join:'and',conditions,then,else:otherwise});
  const message=text=>({type:'toast',value:lit(text)});
  add('heading',template.name);
+ if(id==='settings'){
+  screen.menuIcon='⚙';screen.menuLabel='Paramètres';
+  const dark=add('toggle');dark.props.label='Mode sombre';const previous=project.variables.find(v=>v.name===project.theme.darkVariable&&v.type==='boolean');
+  if(previous){const unused=dark.props.variable;dark.props.variable=previous.name;project.variables=project.variables.filter(v=>v.name!==unused);}else project.theme.darkVariable=dark.props.variable;
+  const notifications=add('toggle');notifications.props.label='Notifications (simulation)';notifications.events.change=[message('Préférence enregistrée sur cet appareil.')];
+  add('text','Ces préférences restent sur cet appareil. Aucune notification réelle n’est envoyée.');
+  const confirm=data('Confirmer la remise à zéro','boolean',false);button('Réinitialiser les données',[set(confirm,true)]);
+  const group=add('container');group.props.visibleVariable=confirm;group.style.borderWidth=1;
+  const warning=component('text',project);warning.props.text='Effacer les données saisies et rétablir les valeurs de départ ?';
+  const accept=component('button',project);accept.props.text='Oui, réinitialiser';accept.events.click=[{type:'reset'},message('Données réinitialisées.')];
+  const cancel=component('button',project);cancel.props.text='Annuler';cancel.events.click=[set(confirm,false)];group.children=[warning,accept,cancel];
+  add('back');
+ }
  if(id==='counter'){const score=data('Compteur','number',0);display('Valeur : ',score);button('＋ 1',[increment(score,1)]);button('− 1',[increment(score,-1)]);button('Remettre à zéro',[set(score,0)]);}
  if(id==='quiz'){
   add('text','Quelle condition signifie « au moins 10 » ?');const answer=add('select');answer.props.label='Ta réponse';answer.props.options='Plus grand que 10\nSupérieur ou égal à 10\nÉgal à 10';

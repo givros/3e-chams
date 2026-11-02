@@ -1,5 +1,5 @@
 export const catalog=[
- ['heading','Titre','T'],['text','Texte','¶'],['image','Image','▧'],['button','Bouton','↗'],['back','Retour','←'],
+ ['heading','Titre','T'],['text','Texte','¶'],['image','Image','▧'],['icon','Icône','★'],['button','Bouton','↗'],['back','Retour','←'],
  ['input','Saisie','⌨'],['number','Nombre','123'],['textarea','Texte long','≡'],['select','Choix','▾'],['toggle','Interrupteur','◉'],
  ['search','Recherche','⌕'],['date','Date','▦'],['range','Curseur','↔'],['rating','Étoiles','★'],['progress','Progression','▰'],['badge','Étiquette','●'],['form','Formulaire','▤'],['accordion','Volet dépliant','⌄'],
  ['container','Groupe d’éléments','□'],['list','Liste','☷'],['products','Liste de produits','▦'],['productDetail','Fiche article','▣'],['cart','Panier','＋'],['divider','Séparateur','—'],['spacer','Espacement','↕']
@@ -17,6 +17,7 @@ export function variable(p,name,type='text',initial=''){
 }
 export function component(type,p){
  const node={id:uid('node'),type,name:catalog.find(c=>c.type===type)?.label||type,props:{text:type==='heading'?'Mon titre':type==='button'?'Mon bouton':'Mon texte'},style:{padding:12,gap:10,fontSize:type==='heading'?26:14,align:'left',width:'100%',color:'',background:''},events:{click:[],change:[],item:[]},children:[]};
+ if(type==='icon')Object.assign(node.props,{icon:'heart',iconSize:40,label:'Favori'});
  if(type==='image')Object.assign(node.props,{src:'assets/pizza.jpg',alt:'Image',height:180,fit:'cover'});
  if(['input','number','textarea','toggle','select','search','date','range','rating'].includes(type)){
   const kind=['number','range','rating'].includes(type)?'number':type==='toggle'?'boolean':'text';const v=variable(p,kind==='number'?'number':type==='toggle'?'enabled':type==='search'?'search':'input',kind,kind==='number'?(type==='range'?50:0):kind==='boolean'?false:'');
@@ -99,7 +100,8 @@ export function validateProject(p){
  if(!safeJSON(p))return false;
  if(!object(p)||p.version!==3||!identifier(p.id)||typeof p.name!=='string'||!object(p.theme)||!Array.isArray(p.screens)||!p.screens.length||!Array.isArray(p.variables))return false;
  if(!['primary','background','text'].every(k=>color(p.theme[k]))||!Number.isFinite(p.theme.radius))return false;
- if(p.navigation!==undefined){const nav=p.navigation;if(!object(nav)||typeof nav.enabled!=='boolean'||!['tabs','drawer','both'].includes(nav.style)||!Array.isArray(nav.items)||!nav.items.every(identifier)||new Set(nav.items).size!==nav.items.length||['showHeader','showBack'].some(k=>nav[k]!==undefined&&typeof nav[k]!=='boolean')||(nav.headerIcon!==undefined&&!['none','menu','profile'].includes(nav.headerIcon))||(nav.profileScreen!==undefined&&nav.profileScreen!==''&&!identifier(nav.profileScreen)))return false;}
+ if(p.theme.darkVariable!==undefined&&p.theme.darkVariable!==''&&!dataName(p.theme.darkVariable))return false;
+ if(p.navigation!==undefined){const nav=p.navigation;if(!object(nav)||typeof nav.enabled!=='boolean'||!['tabs','drawer','both'].includes(nav.style)||!Array.isArray(nav.items)||!nav.items.every(identifier)||new Set(nav.items).size!==nav.items.length||['showHeader','showBack'].some(k=>nav[k]!==undefined&&typeof nav[k]!=='boolean')||(nav.headerIcon!==undefined&&!['none','menu','profile','settings'].includes(nav.headerIcon))||['profileScreen','settingsScreen'].some(k=>nav[k]!==undefined&&nav[k]!==''&&!identifier(nav[k])))return false;}
  const ids=new Set(),names=new Set();
  for(const v of p.variables){
   if(!object(v)||!dataName(v.name)||names.has(v.name)||typeof (v.label??v.name)!=='string'||!['text','number','boolean','list','computed'].includes(v.type))return false;

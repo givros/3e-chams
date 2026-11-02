@@ -10,11 +10,19 @@ export function runTemplateAudit(){
   try{
    const p=blankProject();addScreenTemplate(p,template.id);if(!validateProject(p))throw Error('Invalid template');
    const issues=projectIssues(p);if(issues.length)throw Error(issues.join('; '));
-   const player=createPlayer(root,p);
+   const player=createPlayer(root,p,{persist:template.id==='settings'});
    const assert=(ok,message)=>{if(!ok)throw Error(message);};
    const click=text=>{const button=[...root.querySelectorAll('button')].find(b=>b.textContent===text);assert(button,'Missing button '+text);button.click();};
    const enter=(value,index=0)=>{const el=root.querySelectorAll('[data-bind]')[index];el.value=value;el.dispatchEvent(new Event(el.tagName==='SELECT'?'change':'input',{bubbles:true}));};
    const text=value=>assert(root.textContent.includes(value),'Missing text '+value);
+   if(template.id==='settings'){
+    const dark=p.theme.darkVariable,notification=p.screens.at(-1).nodes.find(n=>n.type==='toggle'&&n.props.variable!==dark).props.variable;
+    root.querySelector('[data-bind="'+dark+'"]').click();assert(player.getState()[dark]===true,'Dark switch');assert(root.style.getPropertyValue('--app-background')==='#181521','Dark appearance');
+    root.querySelector('[data-bind="'+notification+'"]').click();assert(player.getState()[notification]===true,'Notification preference');
+    const restored=document.createElement('div');document.body.append(restored);try{const reloaded=createPlayer(restored,p,{persist:true});assert(reloaded.getState()[dark]===true&&reloaded.getState()[notification]===true,'Preferences survive reopening');}finally{restored.remove();}
+    click('Réinitialiser les données');text('Effacer les données');click('Annuler');assert(player.getState()[dark]===true,'Cancel preserves data');
+    click('Réinitialiser les données');click('Oui, réinitialiser');assert(player.getState()[dark]===false&&player.getState()[notification]===false,'Reset restores preferences');assert(root.style.getPropertyValue('--app-background')===p.theme.background,'Light appearance restored');localStorage.removeItem('studio-app-'+p.id);
+   }
    if(template.id==='counter'){click('＋ 1');text('Valeur : 1');click('− 1');text('Valeur : 0');click('＋ 1');click('Remettre à zéro');text('Valeur : 0');}
    if(template.id==='quiz'){enter('Égal à 10');click('Vérifier');text('Essaie encore.');enter('Supérieur ou égal à 10');click('Vérifier');text('Bonne réponse !');}
    if(template.id==='poll'){click('Voter pizza');click('Voter burger');click('Voter pizza');text('Pizza : 2');text('Burger : 1');}

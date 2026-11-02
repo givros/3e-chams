@@ -20,6 +20,7 @@ export function projectIssues(project){
   operand(a.value,label);
   if(a.type==='if'){for(const c of a.conditions||[]){operand(c.left,label);operand(c.right,label);}actions(a.then,label,event);actions(a.else,label,event);}
  }};
+ if(project.theme.darkVariable)binding(project.theme.darkVariable,'Mode sombre','boolean');
  for(const v of project.variables)if(v.type==='computed')operand(v.formula,v.label||v.name);
  walk(project,(n,s)=>{
   const label=s.name+' / '+n.name;
