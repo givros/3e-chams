@@ -1,7 +1,7 @@
 export const catalog=[
  ['heading','Titre','T'],['text','Texte','¶'],['image','Image','▧'],['icon','Icône','★'],['camera','Appareil photo','📷'],['button','Bouton','↗'],['back','Retour','←'],
  ['input','Saisie','⌨'],['number','Nombre','123'],['textarea','Texte long','≡'],['select','Choix','▾'],['toggle','Interrupteur','◉'],
- ['search','Recherche','⌕'],['date','Date','▦'],['range','Curseur','↔'],['rating','Étoiles','★'],['progress','Progression','▰'],['badge','Étiquette','●'],['form','Formulaire','▤'],['accordion','Volet dépliant','⌄'],
+ ['search','Recherche','⌕'],['date','Date','▦'],['range','Curseur','↔'],['rating','Étoiles','★'],['progress','Progression','▰'],['timer','Minuteur','⏱'],['badge','Étiquette','●'],['form','Formulaire','▤'],['accordion','Volet dépliant','⌄'],
  ['container','Groupe d’éléments','□'],['list','Liste','☷'],['products','Liste de produits','▦'],['productDetail','Fiche article','▣'],['cart','Panier','＋'],['divider','Séparateur','—'],['spacer','Espacement','↕']
 ].map(([type,label,icon])=>({type,label,icon}));
 export const actionTypes=[['set','Remplacer une donnée'],['increment','Ajouter ou retirer un nombre'],['append','Ajouter à une liste'],['remove','Retirer de la liste'],['navigate','Changer d’écran'],['back','Revenir à l’écran précédent'],['validate','Vérifier les champs'],['if','Si / sinon'],['toast','Afficher un message'],['cartAdd','Ajouter au panier'],['reset','Réinitialiser les données']];
@@ -28,6 +28,7 @@ export function component(type,p){
  if(type==='date')Object.assign(node.props,{label:'Choisir une date',placeholder:''});
  if(type==='range')Object.assign(node.props,{label:'Valeur',min:0,max:100,step:1});
  if(type==='rating')Object.assign(node.props,{label:'Ton avis',max:5});
+ if(type==='timer'){const v=variable(p,'remaining','number',60);v.autoLabelFrom=node.id;v.label='Secondes restantes';Object.assign(node.props,{label:'Temps restant',duration:60,autoStart:false,variable:v.name});node.events.finish=[{type:'toast',value:{kind:'literal',value:'Temps écoulé.'}}];}
  if(type==='progress'){const v=variable(p,'progress','number',0);Object.assign(node.props,{label:'Progression',variable:v.name,max:100});}
  if(['input','number','textarea','select','toggle','date','search','range','rating','progress'].includes(type)){const v=p.variables.find(v=>v.name===node.props.variable);v.autoLabelFrom=node.id;v.label=node.props.label||v.label;}
  if(type==='badge')node.props.text='Nouveau';
@@ -124,7 +125,8 @@ export function validateProject(p){
  const visit=(nodes,depth=0)=>{
   if(depth>30||!Array.isArray(nodes))return false;
   for(const n of nodes){
-   if(!object(n)||!identifier(n.id)||ids.has(n.id)||typeof n.name!=='string'||!catalog.some(c=>c.type===n.type)||!object(n.props)||!object(n.style)||!object(n.events)||!['click','change','item'].every(k=>validActions(n.events[k]))||Object.keys(n.events).some(k=>!['click','change','item'].includes(k)))return false;
+   if(!object(n)||!identifier(n.id)||ids.has(n.id)||typeof n.name!=='string'||!catalog.some(c=>c.type===n.type)||!object(n.props)||!object(n.style)||!object(n.events)||!['click','change','item'].every(k=>validActions(n.events[k]))||Object.keys(n.events).some(k=>!['click','change','item',...(n.type==='timer'?['finish']:[])].includes(k)))return false;
+   if(n.type==='timer'&&(n.props.duration!==undefined&&(!Number.isFinite(n.props.duration)||n.props.duration<1||n.props.duration>86400)||n.props.autoStart!==undefined&&typeof n.props.autoStart!=='boolean'||n.events.finish!==undefined&&!validActions(n.events.finish)))return false;
    if(!['padding','gap','fontSize','radius','marginX','marginY','borderWidth'].every(k=>n.style[k]===undefined||Number.isFinite(n.style[k])))return false;
    if(!['color','background','borderColor'].every(k=>n.style[k]===undefined||n.style[k]===''||color(n.style[k])))return false;
    ids.add(n.id);if(!visit(n.children||[],depth+1))return false;

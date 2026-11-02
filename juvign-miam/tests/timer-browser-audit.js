@@ -1,0 +1,18 @@
+import {blankProject,component,variable} from '../src/studio-model.js';
+import {createPlayer} from '../src/studio-player.js';
+
+export async function runTimerAudit(){
+ const root=document.createElement('div');document.body.append(root);const results=[];let player;
+ const assert=(ok,message)=>{if(!ok)throw Error(message);};
+ const wait=ms=>new Promise(resolve=>setTimeout(resolve,ms));
+ const until=async fn=>{const start=performance.now();while(!fn()){if(performance.now()-start>3500)throw Error('Timer timeout');await wait(30);}};
+ const check=async(name,fn)=>{try{await fn();results.push({name,pass:true});}catch(error){results.push({name,pass:false,error:error.message});}};
+ try{
+  const p=blankProject(),timer=component('timer',p),text=component('text',p),entry=component('input',p),score=variable(p,'score','number',0);timer.props.duration=1;p.variables.find(v=>v.name===timer.props.variable).initial=1;text.props.text='Temps : ';text.props.textVariable=timer.props.variable;timer.events.finish=[{type:'increment',variable:score.name,delta:1}];p.screens[0].nodes=[timer,text,entry];p.screens.push({id:'end',name:'Fin',nodes:[]});player=createPlayer(root,p);
+  await check('completion updates bound displays and fires its action only once',async()=>{root.querySelector('[data-timer-start]').click();const focused=root.querySelector('input');focused.focus();focused.value='abc';focused.dispatchEvent(new Event('input',{bubbles:true}));await until(()=>player.getState().score===1);assert(document.activeElement===focused&&focused.value==='abc','typing keeps focus through timer updates');assert(root.querySelector('output').textContent==='00:00','countdown at zero');assert(root.querySelector('[data-text-node]').textContent==='Temps : 0','bound text updates');await wait(350);assert(player.getState().score===1,'one finish');});
+  await check('pause and reset controls work without rerendering or losing focus',async()=>{root.querySelector('[data-timer-reset]').click();root.querySelector('[data-timer-start]').click();root.querySelector('[data-timer-pause]').click();await wait(1100);assert(player.getState().score===1,'paused timer does not finish');assert(!root.querySelector('[data-timer-start]').disabled,'resume available');root.querySelector('[data-timer-reset]').click();assert(root.querySelector('output').textContent==='00:01','reset duration');});
+  await check('leaving the screen pauses the timer until explicitly resumed',async()=>{root.querySelector('[data-timer-start]').click();player.run([{type:'navigate',screen:'end'}]);await wait(1100);assert(player.getState().score===1,'no hidden completion');player.run([{type:'back'}]);assert(!root.querySelector('[data-timer-start]').disabled,'paused on return');});
+  await check('finish actions can navigate and design mode never auto-starts',async()=>{timer.events.finish=[{type:'navigate',screen:'end'}];timer.props.autoStart=true;player.update(p,{design:true,screen:p.home,reset:true});await wait(1100);assert(player.getScreen()===p.home,'design mode stays put');player.update(p,{design:false,screen:p.home,reset:true});await until(()=>player.getScreen()==='end');});
+ }finally{player?.destroy();root.remove();}
+ return {total:results.length,passed:results.filter(r=>r.pass).length,failed:results.filter(r=>!r.pass)};
+}
