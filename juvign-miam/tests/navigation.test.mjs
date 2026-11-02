@@ -13,3 +13,10 @@ test('menu items can move without changing the start screen or losing hidden scr
  assert.equal(moveNavigationItem(p,'second',-1),true);assert.deepEqual(p.navigation.items,['second',p.home]);assert.equal(p.home,p.screens[0].id);
  assert.equal(moveNavigationItem(p,'second',-1),false);assert.equal(moveNavigationItem(p,'detail',1),false);assert.ok(validateProject(p));
 });
+
+test('combined navigation and a profile destination survive saving and layout changes',()=>{
+ const p=blankProject();p.screens.push({id:'profile',name:'Profil',nodes:[]});setNavigation(p,{enabled:true,style:'both',headerIcon:'profile'});
+ assert.equal(p.navigation.profileScreen,'profile');assert.ok(validateProject(JSON.parse(JSON.stringify(p))));
+ setNavigation(p,{style:'tabs'});assert.equal(p.navigation.headerIcon,'profile');
+ p.navigation.headerIcon='invalid';assert.equal(validateProject(p),false);
+});

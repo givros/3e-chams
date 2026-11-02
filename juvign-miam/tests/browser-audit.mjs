@@ -31,10 +31,10 @@ try{
  await page.locator('#player [data-event="item"]').first().click();await page.getByRole('button',{name:'Voir mon panier',exact:true}).click();
  await page.getByRole('button',{name:'Confirmer',exact:true}).click();
  if(!await page.locator('#player').getByText('Commande enregistrée',{exact:true}).count())throw Error('Editor checkout did not reach confirmation.');
- await page.locator('#design-mode').click();await page.locator('#share-app').click();await page.waitForFunction(()=>!document.querySelector('#copy-share').disabled);
+ await page.locator('#design-mode').click();await page.locator('[data-navigation-prop=style]').selectOption('both');await page.locator('[data-navigation-prop=headerIcon]').selectOption('profile');await page.locator('#share-app').click();await page.waitForFunction(()=>!document.querySelector('#copy-share').disabled);
  const link=await page.locator('#share-link').inputValue();if(!await page.locator('#share-qr svg').count())throw Error('Starter QR is missing.');
  await page.locator('[data-close="share-dialog"]').click();
- const shared=await browser.newPage({viewport:{width:390,height:844}});await shared.goto(url+'view.html#'+new URL(link).hash.slice(1));await shared.locator('.rt-tabs button').nth(1).click();if(await shared.locator('[data-event="item"]').count()!==3)throw Error('Shared application catalogue mismatch.');await shared.close();
+ const shared=await browser.newPage({viewport:{width:390,height:844}});await shared.goto(url+'view.html#'+new URL(link).hash.slice(1));await shared.locator('[data-nav-profile]').click();if((await shared.locator('.rt-app-header strong').textContent())!=='Profil')throw Error('Shared profile icon is not linked.');await shared.locator('[data-nav-back]').click();await shared.locator('.rt-tabs button').nth(1).click();if(await shared.locator('[data-event="item"]').count()!==3)throw Error('Shared application catalogue mismatch.');await shared.close();
  const downloadEvent=page.waitForEvent('download');await page.locator('#export-app').click();const download=await downloadEvent;
  const output=path.join(root,'output/playwright');await mkdir(output,{recursive:true});const exported=path.join(output,'ci-export.html');await download.saveAs(exported);
  const offline=await browser.newContext({offline:true,viewport:{width:390,height:844}}),app=await offline.newPage();const external=[];app.on('request',request=>{if(/^https?:/.test(request.url()))external.push(request.url());});app.on('pageerror',error=>errors.push(error.message));

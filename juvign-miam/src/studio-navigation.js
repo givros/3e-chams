@@ -1,7 +1,9 @@
-export function navigationSettings(project){return {enabled:false,style:'tabs',showHeader:true,showBack:true,items:[],...project.navigation};}
+export function navigationSettings(project){const nav=project.navigation||{};return {enabled:false,style:'tabs',showHeader:true,showBack:true,headerIcon:nav.style==='drawer'||nav.style==='both'?'menu':'none',profileScreen:'',items:[],...nav};}
 export function setNavigation(project,changes){
  const before=navigationSettings(project),next={...before,...changes};
  if(changes.enabled===true&&!before.enabled&&!next.items.length)next.items=project.screens.map(s=>s.id);
+ if(changes.style&&!Object.hasOwn(changes,'headerIcon')&&before.headerIcon==='none'&&['drawer','both'].includes(changes.style))next.headerIcon='menu';
+ if(next.headerIcon==='profile'&&!project.screens.some(s=>s.id===next.profileScreen))next.profileScreen=project.screens.find(s=>/profil|profile/i.test(s.name))?.id||'';
  next.items=[...new Set(next.items)].filter(id=>project.screens.some(s=>s.id===id));project.navigation=next;return next;
 }
 export function cleanNavigation(project){if(project.navigation)setNavigation(project,{});}
