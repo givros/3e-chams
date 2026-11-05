@@ -24,7 +24,16 @@ export function runTemplateAudit(){
     click('Réinitialiser les données');click('Oui, réinitialiser');assert(player.getState()[dark]===false&&player.getState()[notification]===false,'Reset restores preferences');assert(root.style.getPropertyValue('--app-background')===p.theme.background,'Light appearance restored');localStorage.removeItem('studio-app-'+p.id);
    }
    if(template.id==='counter'){click('＋ 1');text('Valeur : 1');click('− 1');text('Valeur : 0');click('＋ 1');click('Remettre à zéro');text('Valeur : 0');}
-   if(template.id==='quiz'){enter('Égal à 10');click('Vérifier');text('Essaie encore.');enter('Supérieur ou égal à 10');click('Vérifier');text('Bonne réponse !');}
+   if(template.id==='quiz'){
+    enter('Égal à 10');click('Vérifier');text('Mauvaise réponse.');
+    const snapshot=player.getSnapshot();
+    assert(root.querySelector('select').disabled&&!root.querySelector('button[data-event="click"]'),'Quiz locks the answer and removes Verify');
+    enter('Supérieur ou égal à 10');text('Mauvaise réponse.');
+    assert(root.querySelector('select').value==='Égal à 10','A locked answer cannot be changed');
+    player.update(p,{snapshot});
+    assert(root.querySelector('select').disabled,'Restoring a quiz keeps the answer locked');
+    player.reset();enter('Supérieur ou égal à 10');click('Vérifier');text('Bonne réponse !');
+   }
    if(template.id==='poll'){click('Voter pizza');click('Voter burger');click('Voter pizza');text('Pizza : 2');text('Burger : 1');}
    if(template.id==='tasks'){click('Ajouter la tâche');text('Écris une tâche');enter('Mon devoir');click('Ajouter la tâche');text('Mon devoir');root.querySelector('[data-remove]').click();assert(!root.querySelector('.rt-list-item'),'Task removal');}
    if(template.id==='budget'){enter('30');enter('8',1);text('Il reste (€) : 22');}

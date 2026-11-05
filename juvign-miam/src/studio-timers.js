@@ -12,7 +12,7 @@ export function createAppTimers({onTick=()=>{},onFinish=()=>{},now=()=>performan
  function clear(){if(interval!==null)cancel(interval);interval=null;entries.clear();}
  function configure(definitions,active=true){
   if(!active){clear();return;}const ids=new Set(definitions.map(def=>def.id));for(const timer of entries.values())if(!ids.has(timer.id))pause(timer.id);
-  for(const def of definitions){let timer=entries.get(def.id);const value=duration(def.duration);if(!timer){timer={id:def.id,duration:value,remaining:Math.min(value,Math.max(0,Number.isFinite(def.initialSeconds)?def.initialSeconds:value))*1000,running:false,ended:false};timer.ended=timer.remaining===0;entries.set(def.id,timer);emit(timer);if(def.autoStart&&timer.remaining>0)start(def.id);}else if(timer.duration!==value){timer.duration=value;reset(def.id);}}
+  for(const def of definitions){let timer=entries.get(def.id);const value=duration(def.duration);if(!timer){timer={id:def.id,duration:value,remaining:Math.min(value,Math.max(0,Number.isFinite(def.initialSeconds)?def.initialSeconds:value))*1000,running:false,ended:false};timer.ended=timer.remaining===0;timer.started=!!def.initialStarted||timer.remaining<value*1000;entries.set(def.id,timer);emit(timer);if(def.autoStart&&timer.remaining>0)start(def.id);}else if(timer.duration!==value){timer.duration=value;reset(def.id);}}
   manage();
  }
  return {configure,start,pause,reset,clear,destroy:clear,tick,snapshot:id=>{const timer=entries.get(id);return timer?{seconds:seconds(timer),running:timer.running,ended:timer.ended,started:!!timer.started}:null;}};

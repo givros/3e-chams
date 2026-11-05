@@ -1,3 +1,4 @@
+import {createQuizQuestion} from './studio-quiz.js';
 import {component,uid,variable,blankProject} from './studio-model.js';
 export const screenTemplates=[
  {id:'welcome',name:'Accueil',description:'Photo, titre et bouton',image:'burger'},
@@ -53,11 +54,7 @@ export function addScreenTemplate(project,id){
   add('back');
  }
  if(id==='counter'){const score=data('Compteur','number',0);display('Valeur : ',score);button('＋ 1',[increment(score,1)]);button('− 1',[increment(score,-1)]);button('Remettre à zéro',[set(score,0)]);}
- if(id==='quiz'){
-  add('text','Quelle condition signifie « au moins 10 » ?');const answer=add('select');answer.props.label='Ta réponse';answer.props.options='Plus grand que 10\nSupérieur ou égal à 10\nÉgal à 10';
-  const result=data('Résultat du quiz','text','Pas encore répondu');display('Résultat : ',result);
-  button('Vérifier',[choose([condition(answer.props.variable,'eq','Supérieur ou égal à 10')],[set(result,'Bonne réponse !')],[set(result,'Essaie encore.')])]);
- }
+ if(id==='quiz')createQuizQuestion(project,screen,'Quelle condition signifie « au moins 10 » ?',['Plus grand que 10','Supérieur ou égal à 10','Égal à 10'],'Supérieur ou égal à 10');
  if(id==='poll'){const a=data('Votes pizza','number',0),b=data('Votes burger','number',0);add('text','Pizza ou burger ? Votes enregistrés sur cet appareil.');display('Pizza : ',a);display('Burger : ',b);button('Voter pizza',[increment(a,1)]);button('Voter burger',[increment(b,1)]);}
  if(id==='tasks'){
   const entry=input('input','Nouvelle tâche'),list=add('list');project.variables.find(v=>v.name===list.props.variable).initial=[];

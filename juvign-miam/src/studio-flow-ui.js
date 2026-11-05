@@ -4,9 +4,11 @@ import {findNode,walk,uid} from './studio-model.js';
 import {createPlayer} from './studio-player.js';
 import {photoBank} from './studio-photos.js';
 const esc=value=>String(value??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
-export function installFlowUI({getProject,commit,openScreen,openActions,finishStarter}){
+export function installFlowUI({getProject,commit,openScreen,openActions,finishStarter,initialState={},onSessionChange=()=>{}}){
  const $=selector=>document.querySelector(selector);let introSelection='',source='',sourceEvent='click',previews=[],starterDrag=null,keyboardBlock='';
- const starter=$('#starter-dialog'),connections=$('#connections-dialog');
+ let wantConnections=false;const starter=$('#starter-dialog'),connections=$('#connections-dialog');
+ const getState=()=>({introSelection,source,sourceEvent,connectionsOpen:connections.open||wantConnections});
+ const restore=saved=>{introSelection=typeof saved?.introSelection==='string'?saved.introSelection:'';source=typeof saved?.source==='string'?saved.source:'';sourceEvent=['click','change','item','finish'].includes(saved?.sourceEvent)?saved.sourceEvent:'click';wantConnections=saved?.connectionsOpen===true;};restore(initialState);
  const conditionalOnly=()=>{const links=screenConnections(getProject()).filter(link=>link.node===source&&link.event===sourceEvent);return links.length>0&&links.every(link=>link.conditional);};
  const introActive=()=>getProject().starter?.version===1&&!getProject().starter.complete;
  function renderStarter(){
@@ -22,7 +24,7 @@ export function installFlowUI({getProject,commit,openScreen,openActions,finishSt
   if(focused){const field=starter.querySelector(`[data-starter-property="${focused}"]`);field?.focus();try{field?.setSelectionRange(caret,caret);}catch{}}
  }
  function linkTo(target){if(!source||conditionalOnly())return;const id=source,event=sourceEvent;commit(()=>connectScreen(getProject(),id,target,event));$('#connections-hint').textContent='Lien créé. Tu peux le tester avec « Tester » dans l’éditeur.';}
- function chooseSource(id,event=null){const found=findNode(getProject(),id);if(!found)return;source=id;sourceEvent=event||connectionEvent(found.node);renderConnections();}
+ function chooseSource(id,event=null){const found=findNode(getProject(),id);if(!found)return;source=id;sourceEvent=event||connectionEvent(found.node);renderConnections();onSessionChange();}
  function renderConnections(){
   previews.forEach(player=>player.destroy());previews=[];const p=getProject(),found=findNode(p,source),links=screenConnections(p);if(!found)source='';
   $('#connections-hint').textContent=source?'« '+connectionLabel(found.node,sourceEvent)+' » → clique sur l’écran à ouvrir.':'Clique sur un bouton, puis sur son écran de destination.';
@@ -42,11 +44,11 @@ export function installFlowUI({getProject,commit,openScreen,openActions,finishSt
    return `<path d="M${x} ${y} H${outside} V${lane} H${tx} V${ty}" fill="none" stroke="#6339c7" stroke-width="${source===link.node&&sourceEvent===link.event?3:1.5}" opacity="${source&&(source!==link.node||sourceEvent!==link.event)?'.22':'1'}" stroke-dasharray="${link.conditional?'5 4':'none'}" marker-end="url(#connection-arrow)"/>`;
   }).join('');
  }
- function refresh(){const active=introActive();document.body.classList.toggle('starter-active',active);if(active){if(!starter.open)starter.showModal();renderStarter();}else if(starter.open)starter.close();if(connections.open)renderConnections();}
+ function refresh(){const active=introActive();document.body.classList.toggle('starter-active',active);if(active){if(!starter.open)starter.showModal();renderStarter();}else if(starter.open)starter.close();if(!active&&wantConnections&&!connections.open&&!document.querySelector('dialog[open]')){connections.showModal();wantConnections=false;}if(connections.open)renderConnections();}
  starter.addEventListener('cancel',event=>event.preventDefault());
  starter.addEventListener('click',event=>{const button=event.target.closest('button');if(!button)return;
   if(button.dataset.starterAdd){keyboardBlock=button.dataset.starterAdd;$('#starter-hint').textContent='Glisse ce bloc dans ton écran. Au clavier : appuie sur Entrée dans la zone de dépôt.';$('#starter-canvas').focus();}
-  if(button.dataset.starterSelect){introSelection=button.dataset.starterSelect;renderStarter();}
+  if(button.dataset.starterSelect){introSelection=button.dataset.starterSelect;renderStarter();onSessionChange();}
   if(button.dataset.starterMove)commit(()=>{const nodes=getProject().screens.find(s=>s.id===getProject().home).nodes,index=nodes.findIndex(n=>n.id===introSelection),target=index+Number(button.dataset.starterMove);if(index>=0&&target>=0&&target<nodes.length)[nodes[index],nodes[target]]=[nodes[target],nodes[index]];});
  });
  const clearDrop=()=>{starter.querySelectorAll('.starter-drop-before,.starter-drop-after').forEach(el=>el.classList.remove('starter-drop-before','starter-drop-after'));$('#starter-canvas').classList.remove('starter-drag-over');};
@@ -61,8 +63,8 @@ export function installFlowUI({getProject,commit,openScreen,openActions,finishSt
  const edit=event=>{const property=event.target.dataset.starterProperty;if(!property)return;const node=findNode(getProject(),introSelection)?.node;if(!node)return;const value=event.target.value;commit(()=>node.props[property]=value,{redraw:false,key:'starter.'+introSelection+'.'+property});renderStarter();};
  starter.addEventListener('input',event=>{if(event.target.tagName!=='SELECT')edit(event);});starter.addEventListener('change',event=>{if(event.target.tagName==='SELECT')edit(event);});
  $('#starter-finish').onclick=()=>{if(!starterProgress(getProject()).done)return;finishStarter();try{localStorage.setItem('juvign-miam-starter-complete','1');}catch{}$('#connections').focus();};
- $('#connections').onclick=()=>{source='';connections.showModal();renderConnections();};
- connections.addEventListener('close',()=>{previews.forEach(player=>player.destroy());previews=[];});
+ $('#connections').onclick=()=>{source='';wantConnections=false;connections.showModal();renderConnections();onSessionChange();};
+ connections.addEventListener('close',()=>{previews.forEach(player=>player.destroy());previews=[];wantConnections=false;onSessionChange();});
  connections.addEventListener('click',event=>{const button=event.target.closest('button');if(!button)return;if(button.dataset.connectionSource)chooseSource(button.dataset.connectionSource,button.dataset.connectionEvent);
   if(button.dataset.connectionTarget){if(conditionalOnly())return;if(!source){$('#connections-hint').textContent='Choisis d’abord un bouton à relier.';return;}linkTo(button.dataset.connectionTarget);}
   if(button.dataset.connectionEdit){connections.close();openScreen(button.dataset.connectionEdit);}
@@ -70,5 +72,5 @@ export function installFlowUI({getProject,commit,openScreen,openActions,finishSt
  $('#connection-back').onclick=()=>{if(source)commit(()=>connectScreen(getProject(),source,'back',sourceEvent));};$('#connection-remove').onclick=()=>{if(source)commit(()=>disconnectScreen(getProject(),source,sourceEvent));};
  $('#connection-add-screen').onclick=()=>commit(()=>{const p=getProject();p.screens.push({id:uid('screen'),name:'Écran '+(p.screens.length+1),background:p.theme.background,nodes:[]});});
  $('#connection-actions').onclick=()=>{if(source){const id=source;connections.close();openActions?.(id,sourceEvent);}};
- window.addEventListener('resize',drawLines);return {refresh,openFor:id=>{source=id;sourceEvent=connectionEvent(findNode(getProject(),id)?.node||{});connections.showModal();renderConnections();}};
+ window.addEventListener('resize',drawLines);return {refresh,getState,restore,openFor:id=>{source=id;sourceEvent=connectionEvent(findNode(getProject(),id)?.node||{});connections.showModal();renderConnections();onSessionChange();}};
 }

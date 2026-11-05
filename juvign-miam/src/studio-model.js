@@ -37,7 +37,7 @@ export function component(type,p){
   node.props.title='Mon formulaire';const entry=component('input',p),submit=component('button',p);entry.props.label='Ton prénom';entry.props.required=true;submit.props.text='Valider';submit.events.click=[{type:'validate',form:node.id},{type:'toast',value:{kind:'literal',value:'Formulaire validé (simulation).'}}];node.children=[entry,submit];
  }
  if(type==='container')Object.assign(node.props,{direction:'column'});
- if(type==='list'){const v=variable(p,'items','list',['Premier élément']);Object.assign(node.props,{variable:v.name,itemText:'{{item.name}}',removable:true,itemButton:'',empty:'Liste vide'});}
+ if(type==='list'){const v=variable(p,'items','list',['Premier élément']);Object.assign(node.props,{variable:v.name,itemText:'{{item}}',removable:true,itemButton:'',empty:'Liste vide'});}
  if(type==='products'||type==='productDetail'){
   const v=variable(p,type==='productDetail'?'article':'products','list',[{name:'Premier article',price:10,image:'assets/pizza.jpg',...(type==='productDetail'?{description:'Description de mon article.'}:{})}]),cart=p.variables.find(v=>v.name==='cart'&&v.type==='list')||variable(p,'cart','list',[]);
   Object.assign(node.props,{variable:v.name,nameField:'name',priceField:'price',imageField:'image',itemButton:'Ajouter',empty:'Aucun article'});node.events.item=[{type:'cartAdd',variable:cart.name,quantity:1}];
