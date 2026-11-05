@@ -60,6 +60,25 @@ export function createPlayer(root,project,options={}){
    }visit(n.children||[],[...ancestors,n]);
   }};visit(owner.nodes||owner.children||[]);
  }
+ function cartProduct(item,node){
+  const props=node?.props||{},source=props.identityVariable||props.variable||node?.id||'item';
+  return {source,id:source+':'+productKey(item,props),name:item[props.nameField||'name']??item.name??String(item),
+   price:numeric(item[props.priceField||'price']),image:item[props.imageField||'image']||''};
+ }
+ function matchingCartRow(row,{source,id,name,price,image}){
+  if(!row)return false;
+  const rowId=String(row.id);
+  const legacy=/^\d+$/.test(rowId)||(rowId.startsWith(source+':')&&/^\d+$/.test(rowId.slice(source.length+1)));
+  return row.id===id||legacy&&row.name===name&&numeric(row.price)===price&&(row.image||'')===image;
+ }
+ function cartQuantityLabel(item,node){
+  if(design||!item)return '';
+  const action=node.events.item?.find(a=>a.type==='cartAdd'&&Array.isArray(read(a.variable)));
+  if(!action)return '';
+  const product=cartProduct(item,node);
+  const quantity=numeric(read(action.variable).find(row=>matchingCartRow(row,product))?.quantity);
+  return quantity>0?`<span class="rt-product-quantity">${quantity} dans le panier</span>`:'';
+ }
  function run(actions,context={},depth=0){if(depth>30)throw Error('Les conditions sont trop imbriquées.');for(const a of actions||[]){
   if(a.type==='set')write(a.variable,value(a.value,context));
   if(a.type==='increment')write(a.variable,Number(read(a.variable)||0)+Number(a.delta||0));
@@ -72,9 +91,8 @@ export function createPlayer(root,project,options={}){
   if(a.type==='if'){const matches=(a.conditions||[]).map(c=>condition(c,context)),result=!!(matches.length&&(a.join==='or'?matches.some(Boolean):matches.every(Boolean)));log.push({action:'if',result,screen});run(result?a.then:a.else,context,depth+1);}
   if(a.type==='cartAdd'){
    const list=read(a.variable);if(!Array.isArray(list)||!context.item)throw Error('Cette action utilise un article de catalogue et une liste panier.');
-   const item=context.item,props=context.node?.props||{},source=props.identityVariable||props.variable||context.node?.id||'item',id=source+':'+productKey(item,props),qty=Math.max(1,numeric(a.quantity,1));
-   const name=item[props.nameField||'name']??item.name??String(item),price=numeric(item[props.priceField||'price']),image=item[props.imageField||'image']||'';
-   const foundIndex=list.findIndex(x=>x&&(x.id===id||((String(x.id).startsWith(source+':')&&/^\d+$/.test(String(x.id).slice(source.length+1))||/^\d+$/.test(String(x.id)))&&x.name===name&&numeric(x.price)===price&&(x.image||'')===image)));
+   const product=cartProduct(context.item,context.node),{id,name,price,image}=product,qty=Math.max(1,numeric(a.quantity,1));
+   const foundIndex=list.findIndex(row=>matchingCartRow(row,product));
    const next=clone(list);if(foundIndex>=0){next[foundIndex].id=id;next[foundIndex].quantity=numeric(next[foundIndex].quantity)+qty;}else next.push({id,name,price,image,quantity:qty});write(a.variable,next);
   }
   if(a.type==='reset'){quizPositions.clear();quizLocked.clear();timers.clear();restoredTimers.clear();clearPhotos();camera.stop();for(const v of p.variables)state[v.name]=clone(v.initial);}
@@ -145,7 +163,7 @@ export function createPlayer(root,project,options={}){
    const list=read(x.variable),index=Math.max(0,Math.floor(numeric(x.itemIndex))),item=Array.isArray(list)?list[index]:null;
    if(item&&typeof item==='object'){
     const image=safeImage(item[x.imageField||'image']),description=item[x.descriptionField===undefined?'description':x.descriptionField];
-    body=`<article class="rt-product-detail">${image?`<img src="${esc(image)}" alt="${esc(item[x.nameField||'name']||'')}" class="rt-detail-image">`:''}<h3>${esc(item[x.nameField||'name'])}</h3>${description?`<p>${esc(description)}</p>`:''}<strong class="rt-detail-price">${money(item[x.priceField||'price'])}</strong>${x.itemButton?`<button type="button" class="rt-button" data-event="item" data-node="${id}" data-index="${index}">${esc(x.itemButton)}</button>`:''}</article>`;
+    body=`<article class="rt-product-detail">${image?`<img src="${esc(image)}" alt="${esc(item[x.nameField||'name']||'')}" class="rt-detail-image">`:''}<h3>${esc(item[x.nameField||'name'])}</h3>${description?`<p>${esc(description)}</p>`:''}<strong class="rt-detail-price">${money(item[x.priceField||'price'])}</strong>${cartQuantityLabel(item,n)}${x.itemButton?`<button type="button" class="rt-button" data-event="item" data-node="${id}" data-index="${index}">${esc(x.itemButton)}</button>`:''}</article>`;
    }else body=`<div class="rt-list-empty">${esc(x.empty||'Sélectionne un article.')}</div>`;
   }
   if(n.type==='list'||n.type==='products'){
@@ -157,7 +175,7 @@ export function createPlayer(root,project,options={}){
    body=items.length?`<div class="rt-list ${n.type==='products'?'rt-products':''}">${items.map(({item,index})=>{
     const ctx={item,index,node:n},image=n.type==='products'?safeImage(item?.[x.imageField||'image']):'',name=n.type==='products'?item?.[x.nameField||'name']:template(x.itemText||'{{item}}',ctx);
     const clickable=!x.itemButton&&n.events.item?.length;
-    return `<div class="rt-list-item" ${clickable?`data-event="item" data-node="${id}" data-index="${index}" role="button" tabindex="0"`:''}>${image?`<img src="${esc(image)}" alt="">`:''}<div class="rt-item-copy">${esc(name??'')} ${n.type==='products'?`<b>${money(item?.[x.priceField||'price'])}</b>`:''}</div>${x.itemButton?`<button type="button" class="rt-button rt-small" data-event="item" data-node="${id}" data-index="${index}">${esc(x.itemButton)}</button>`:''}${n.type==='list'&&x.removable?`<button type="button" class="rt-remove" data-remove="${esc(x.variable)}" data-index="${index}" aria-label="Supprimer cet élément">✕</button>`:''}</div>`;
+    return `<div class="rt-list-item" ${clickable?`data-event="item" data-node="${id}" data-index="${index}" role="button" tabindex="0"`:''}>${image?`<img src="${esc(image)}" alt="">`:''}<div class="rt-item-copy">${esc(name??'')} ${n.type==='products'?`<b>${money(item?.[x.priceField||'price'])}</b>${cartQuantityLabel(item,n)}`:''}</div>${x.itemButton?`<button type="button" class="rt-button rt-small" data-event="item" data-node="${id}" data-index="${index}">${esc(x.itemButton)}</button>`:''}${n.type==='list'&&x.removable?`<button type="button" class="rt-remove" data-remove="${esc(x.variable)}" data-index="${index}" aria-label="Supprimer cet élément">✕</button>`:''}</div>`;
    }).join('')}</div>`:`<div class="rt-list-empty">${esc(query?'Aucun résultat.':x.empty||'Liste vide')}</div>`;
   }
   if(n.type==='cart'){
@@ -372,6 +390,7 @@ export const playerCSS=`
 
 .rt-node .rt-label input,.rt-node .rt-label textarea,.rt-node .rt-label select{background:var(--field-background,#ffffff);color:var(--field-color,#000000);border-radius:var(--node-radius,var(--app-radius))}.rt-list-item{border-radius:var(--node-radius,var(--app-radius))}
 
+.rt-product-quantity{display:table;margin-top:4px;padding:2px 6px;border:1px solid currentColor;border-radius:5px;font-size:.8em;font-weight:700;white-space:normal}
 .rt-product-detail{display:flex;flex-direction:column;gap:15px}.rt-detail-image{display:block;width:100%;height:230px;object-fit:cover;border-radius:var(--node-radius,var(--app-radius))}.rt-product-detail h3{font-size:1.65em;margin:0;line-height:1.2}.rt-product-detail p{margin:0;font-size:inherit;line-height:1.6;white-space:pre-wrap}.rt-detail-price{font-size:1.4em}.rt-product-detail .rt-button{font-size:inherit}
 
 .app-player[data-has-tabs="true"]>.rt-notice{bottom:calc(76px + env(safe-area-inset-bottom,0px))}

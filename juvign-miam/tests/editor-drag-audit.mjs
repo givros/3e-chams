@@ -212,6 +212,9 @@ export async function auditOrderChallenges(browser,url){
    const demo=page.locator('#quiz-wizard'),demoApp=demo.locator('.rt-screen');
    await demoApp.getByRole('button',{name:'Voir la carte',exact:true}).click();
    await demoApp.getByRole('button',{name:'Ajouter',exact:true}).first().click();
+   await demoApp.getByText('1 dans le panier',{exact:true}).waitFor();
+   await demoApp.getByRole('button',{name:'Ajouter',exact:true}).first().click();
+   await demoApp.getByText('2 dans le panier',{exact:true}).waitFor();
    await demoApp.getByRole('button',{name:'Voir mon panier',exact:true}).click();
    await demoApp.getByRole('button',{name:'Confirmer',exact:true}).click();
    if(!(await demoApp.getByText('Commande enregistrée',{exact:true}).count()))throw Error('The sample order did not reach confirmation.');
@@ -244,6 +247,7 @@ export async function auditOrderChallenges(browser,url){
     await guide.locator('[data-order-continue]').click();
    }
    await phone.getByRole('button',{name:'Ajouter',exact:true}).first().click();
+   await phone.getByText('1 dans le panier',{exact:true}).waitFor();
    await phone.getByRole('button',{name:'Voir mon panier',exact:true}).click();
    if(level==='3e'&&!(await phone.getByText('3,00',{exact:false}).count()))throw Error('The chosen delivery fee did not reach the basket.');
    await phone.getByRole('button',{name:'Confirmer',exact:true}).click();
