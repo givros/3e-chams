@@ -4,6 +4,7 @@ export const screenTemplates=[
  {id:'welcome',name:'Accueil',description:'Photo, titre et bouton',image:'burger'},
  {id:'catalog',name:'Carte du restaurant',description:'Articles et ajout au panier',image:'pizza'},
  {id:'basket',name:'Panier',description:'Quantités, total et confirmation',image:'fries'},
+ {id:'receipt',name:'Confirmation de commande',description:'Message et récapitulatif des articles',icon:'✓',color:'#d8f2e7'},
  {id:'contact',name:'Formulaire',description:'Saisie et message de confirmation',image:'drink'},
  {id:'profile',name:'Profil',description:'Prénom et préférences',image:'sushi'},
  {id:'counter',name:'Compteur',description:'Ajouter, retirer et remettre à zéro',icon:'＋',color:'#eee3fc'},
@@ -89,6 +90,13 @@ export function addScreenTemplate(project,id){
  if(id==='welcome'){add('image').props.src='assets/burger.jpg';add('text','Bienvenue dans mon restaurant');const b=add('button','Voir la carte');b.events.click=[{type:'toast',value:{kind:'literal',value:'Choisis la destination du bouton dans Actions.'}}];}
  if(id==='catalog')add('products');
  if(id==='basket')add('cart');
+ if(id==='receipt'){
+  add('text','Merci pour ta commande !');
+  const summary=add('list'),items=project.variables.find(v=>v.name===summary.props.variable);
+  items.initial=[];
+  items.fields=[{name:'name',label:'Article',type:'text'},{name:'quantity',label:'Quantité',type:'number'}];
+  Object.assign(summary.props,{itemText:'{{item.quantity}} × {{item.name}}',removable:false,empty:'Aucune commande enregistrée.'});
+ }
  if(id==='contact'){const form=add('form');form.props.title='Nous contacter';const text=component('textarea',project);text.props.label='Ton message';text.props.required=true;form.children.splice(1,0,text);form.children.at(-1).props.text='Envoyer';}
  if(id==='profile'){add('input').props.label='Ton prénom';add('select').props.label='Ton plat préféré';screen.nodes.at(-1).props.options='Pizza\nBurger\nSushis';add('toggle').props.label='Recevoir les nouveautés';}
  if(id==='search-catalog'){

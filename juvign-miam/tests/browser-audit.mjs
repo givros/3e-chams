@@ -1,5 +1,5 @@
 import {auditEditorRefresh} from './editor-refresh-audit.mjs';
-import {auditEditorDrag,auditQuizTutorial} from './editor-drag-audit.mjs';
+import {auditEditorDrag,auditQuizTutorial,auditOrderChallenges} from './editor-drag-audit.mjs';
 import {chromium} from 'playwright';
 import {spawn} from 'node:child_process';
 import {fileURLToPath,pathToFileURL} from 'node:url';
@@ -21,6 +21,10 @@ try{
  browser=await chromium.launch({headless:true,args:['--use-fake-device-for-media-stream','--use-fake-ui-for-media-stream']});page=await browser.newPage({viewport:{width:1440,height:900}});
  const errors=[];page.on('pageerror',error=>errors.push(error.message));await page.goto(url);
  await page.locator('[data-studio-level="3e"]').click();
+ await page.locator('#quiz-wizard').getByRole('heading',{name:'Essaie une appli de commande'}).waitFor();
+ await page.locator('#quiz-wizard [data-close]').click();
+ await page.locator('#new-project').click();
+ await page.locator('[data-template=starter]').click();
  await page.locator('#starter-dialog').waitFor({state:'visible'});if(await page.locator('#starter-finish').isEnabled())throw Error('Starter can be skipped before construction.');
  const starterCanvas=page.locator('#starter-canvas');await page.locator('[data-starter-add=image]').dragTo(page.locator('.starter-reference'));if(await starterCanvas.locator('[data-starter-select]').count())throw Error('A drop outside the phone added a block.');
  await page.locator('[data-starter-add=image]').dragTo(starterCanvas);await page.locator('[data-starter-property=src]').selectOption('assets/mountain.jpg');await page.locator('[data-starter-add=heading]').dragTo(starterCanvas,{targetPosition:{x:70,y:310}});await page.locator('[data-starter-property=text]').fill('Mon univers');
@@ -38,11 +42,11 @@ try{
  await changeLevel('4e');
  if(await page.locator('[data-tab=data]').isVisible()||await page.locator('[data-add-component=camera]').count())throw Error('4e exposes advanced tools by default.');
  await page.locator('[data-tab=models]').click();
- if(await page.locator('[data-screen-model]').count()!==6)throw Error('4e model selection was not applied.');
+ if(await page.locator('[data-screen-model]').count()!==8)throw Error('4e model selection was not applied.');
  await page.locator('#studio-tools-toggle').click();
- if(!(await page.locator('[data-tab=data]').isVisible())||await page.locator('[data-screen-model]').count()<=6)throw Error('4e could not reveal all tools.');
+ if(!(await page.locator('[data-tab=data]').isVisible())||await page.locator('[data-screen-model]').count()<=8)throw Error('4e could not reveal all tools.');
  await page.reload();
- if(await page.locator('#level-dialog').isVisible()||await page.locator('[data-screen-model]').count()!==6)throw Error('4e preference was not restored.');
+ if(await page.locator('#level-dialog').isVisible()||await page.locator('[data-screen-model]').count()!==8)throw Error('4e preference was not restored.');
  await changeLevel('3e');
  if(!(await page.locator('[data-tab=data]').isVisible())||await savedProject()!==beforeLevelChange)throw Error('Changing level modified the student project or failed to restore 3e.');
  await page.locator('[data-tab=components]').click();
@@ -75,7 +79,7 @@ try{
  await app.goto(pathToFileURL(exported).href);await app.locator('.rt-tabs button').nth(1).click();await app.locator('[data-event="item"]').first().click();await app.locator('.rt-tabs button').nth(2).click();await app.getByRole('button',{name:'Confirmer',exact:true}).click();
  if(!await app.getByText('Simulation : aucun paiement ni livraison.',{exact:true}).isVisible())throw Error('Offline confirmation is missing.');
  await app.reload();if(!await app.getByText('Simulation : aucun paiement ni livraison.',{exact:true}).isVisible())throw Error('Standalone screen was not restored after refresh.');await app.locator('[data-nav-back]').click();if(!await app.getByText('Panier vide',{exact:true}).isVisible())throw Error('Standalone back history was not restored.');if(external.length)throw Error('Standalone export made external requests.');await offline.close();
- await auditEditorDrag(page);await auditEditorRefresh(page);await auditQuizTutorial(browser,url);
+ await auditEditorDrag(page);await auditEditorRefresh(page);await auditQuizTutorial(browser,url);await auditOrderChallenges(browser,url);
  if(errors.length)throw Error('Browser errors: '+errors.join('; '));console.log(`Passed ${total} browser checks and editor/share/offline export flows.`);
 }catch(error){if(page){await mkdir(path.join(root,'output/playwright'),{recursive:true});await page.screenshot({path:path.join(root,'output/playwright/browser-failure.png')}).catch(()=>{});}console.error(error);process.exitCode=1;}
 finally{await browser?.close();server.kill();}

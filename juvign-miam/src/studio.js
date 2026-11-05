@@ -1,3 +1,4 @@
+import {orderChallengeProject,orderParts,installOrderModel,connectOrderCheckout} from './studio-order-guide.js';
 import {quizQuestions,createQuizQuestion,updateQuizScore,syncQuizSteps,quizTutorialProject,quizTutorialProgress,quizTutorialTarget,unsetQuizAnswer,quizQuestionReady,quizDemoProject,setQuizQuestionImage,normalizeQuizImages} from './studio-quiz.js';
 import {loadEditorSession,saveEditorSession} from './studio-session.js';
 import {createAppTimers} from './studio-timers.js';
@@ -34,10 +35,10 @@ try{freshWorkspace=!localStorage.getItem(storageKey)&&!localStorage.getItem('juv
 const studioLevelKey='juvign-miam-studio-level';
 let studioLevel=null,showAdvancedTools=false;
 try{const savedLevel=localStorage.getItem(studioLevelKey);if(['4e','3e'].includes(savedLevel))studioLevel=savedLevel;}catch{}
-if(freshWorkspace)project=studioLevel==='4e'?quizTutorialProject():starterProject();
+if(freshWorkspace)project=studioLevel==='4e'?quizTutorialProject():blankProject();
 const essentialsOnly=()=>studioLevel==='4e'&&!showAdvancedTools;
 const essentialComponents=new Set(['heading','text','image','icon','button','back','list','products','menu','columns2','timer']);
-const essentialModels=new Set(['welcome','contact','profile','quiz','scoreboard','faq']);
+const essentialModels=new Set(['welcome','catalog','basket','contact','profile','quiz','scoreboard','faq']);
 const advancedTabs=new Set(['data','actions']);
 normalizeQuizImages(project);
 let flowUI,quizWizardMode='',quizWizardPlayer;
@@ -60,7 +61,7 @@ function save(){
  syncDataLabels(project);
  clearTimeout(librarySaveTimer);
  if(recovery?.blocked){$('#save-status').textContent='Récupère l’ancienne sauvegarde avant d’enregistrer.';}else try{localStorage.setItem(storageKey,JSON.stringify(project));projectSaveFailed=false;$('#save-status').textContent='Enregistré sur cet ordinateur';librarySaveTimer=setTimeout(()=>{try{archiveProject(localStorage,project);}catch{$('#save-status').textContent='Bibliothèque indisponible : télécharge une sauvegarde du projet.';}},650);}catch{projectSaveFailed=true;$('#save-status').textContent='Stockage plein : télécharge le projet JSON.';}
- $('#undo').disabled=quizGuideActive()||!history.length;$('#redo').disabled=quizGuideActive()||!future.length;saveWorkspace();
+ $('#undo').disabled=studioGuideActive()||!history.length;$('#redo').disabled=studioGuideActive()||!future.length;saveWorkspace();
 }
 function projectError(error){
  const message=error?.name==='QuotaExceededError'?'Espace insuffisant. Télécharge une sauvegarde avant de changer d’application.':error.message;
@@ -106,10 +107,10 @@ function selectNode(id){selectedId=id;selectedVariable=null;inspectorTab='props'
 function renderScreensPicker(){$('#project-name').value=project.name;$('#screen-picker').innerHTML=project.screens.map(s=>option(s.id,s.name,screenId)).join('');}
 function treeHTML(nodes,depth=0){return nodes.map(n=>`<button class="tree-row ${n.id===selectedId?'active':''}" draggable="true" data-move-node="${n.id}" ${['container','form','accordion'].includes(n.type)?`data-player-drop="${n.id}"`:''} data-select-node="${n.id}" style="padding-left:${8+depth*13}px">${esc(n.name)}<small>${catalog.find(c=>c.type===n.type)?.label||''}</small></button>${treeHTML(n.children||[],depth+1)}`).join('');}
 function renderLibrary(){
- const guided=quizGuideActive(),waiting=needsQuizModel(),simple=essentialsOnly();
+ const guided=studioGuideActive(),expected=guidedModel(),waiting=!!expected,simple=essentialsOnly();
  document.body.classList.toggle('quiz-guided',guided);
  for(const id of ['connections','add-screen','screen-picker','project-name','preview-app','test-state','issues-button'])$('#'+id).disabled=guided;
- for(const id of ['design-mode','test-mode','reset-test'])$('#'+id).disabled=guided&&wizardStep()!==7;
+ for(const id of ['design-mode','test-mode','reset-test'])$('#'+id).disabled=guided&&!guideTesting();
  for(const b of document.querySelectorAll('[data-tab]')){
   const tab=b.dataset.tab;
   b.hidden=simple&&advancedTabs.has(tab)&&libraryTab!==tab;
@@ -118,9 +119,9 @@ function renderLibrary(){
  }
  const focusId=['component-search','model-search'].includes(document.activeElement?.id)?document.activeElement.id:null,caret=focusId?document.activeElement.selectionStart:0;
  const availableModels=simple?screenTemplates.filter(t=>essentialModels.has(t.id)):screenTemplates;
- const models=waiting?[...availableModels.filter(t=>t.id==='quiz'),...availableModels.filter(t=>t.id!=='quiz')]:availableModels;
+ const models=waiting?[...screenTemplates.filter(t=>t.id===expected),...availableModels.filter(t=>t.id!==expected)]:availableModels;
  let html='';
- if(libraryTab==='models')html=`<input class="library-search" id="model-search" type="search" placeholder="Rechercher un modèle" aria-label="Rechercher un modèle" value="${esc(modelQuery)}"><div class="section-label">Ajouter un écran · ${models.length} modèles</div><p class="help">${waiting?'Glisse le modèle Quiz dans le téléphone.':'Clique sur un modèle pour créer un écran, ou glisse-le dans le téléphone.'}</p><div class="screen-model-list">${models.filter(t=>!modelQuery||normalizeSearch(t.name+' '+t.description).includes(normalizeSearch(modelQuery))).map(t=>`<button draggable="true" data-screen-model="${t.id}" class="${waiting&&t.id==='quiz'?'quiz-model-target':''}">${t.image?`<img src="assets/${t.image}.jpg" alt="" draggable="false">`:`<b class="model-icon" style="background:${t.color}">${esc(t.icon)}</b>`}<strong>${esc(t.name)}</strong><span>${esc(t.description)}</span></button>`).join('')}</div>`;
+ if(libraryTab==='models')html=`<input class="library-search" id="model-search" type="search" placeholder="Rechercher un modèle" aria-label="Rechercher un modèle" value="${esc(modelQuery)}"><div class="section-label">Ajouter un écran · ${models.length} modèles</div><p class="help">${waiting?'Glisse le modèle « '+esc(models[0].name)+' » dans le téléphone.':'Clique sur un modèle pour créer un écran, ou glisse-le dans le téléphone.'}</p><div class="screen-model-list">${models.filter(t=>!modelQuery||normalizeSearch(t.name+' '+t.description).includes(normalizeSearch(modelQuery))).map(t=>`<button draggable="true" data-screen-model="${t.id}" class="${waiting&&t.id===expected?'quiz-model-target':''}">${t.image?`<img src="assets/${t.image}.jpg" alt="" draggable="false">`:`<b class="model-icon" style="background:${t.color}">${esc(t.icon)}</b>`}<strong>${esc(t.name)}</strong><span>${esc(t.description)}</span></button>`).join('')}</div>`;
  if(libraryTab==='photos')html='<p class="library-drag-hint">Glisse une photo dans le téléphone ou clique dessus pour l’ajouter.</p><button class="solid-button" data-import-photo>Importer une image</button>'+photoLibrary('');
  if(libraryTab==='components'){
   const entries=libraryEntries(componentQuery,componentCategory).filter(entry=>!simple||essentialComponents.has(entry.type));
@@ -143,7 +144,7 @@ function renderLibrary(){
  if(studioLevel==='4e')html+=`<button id="studio-tools-toggle" class="outline-button" data-toggle-studio-tools aria-expanded="${showAdvancedTools}">${simple?'Afficher tous les outils':'Revenir aux outils essentiels'}</button>`;
  $('#library-content').innerHTML=html;
  if(guided)for(const control of $('#library-content').querySelectorAll('button,input,select,textarea')){
-  if(control.matches('.library-search,.library-filter,[data-photo-category],[data-photo-search],#studio-tools-toggle')||waiting&&control.dataset.screenModel==='quiz')continue;
+  if(control.matches('.library-search,.library-filter,[data-photo-category],[data-photo-search],#studio-tools-toggle')||waiting&&control.dataset.screenModel===expected)continue;
   control.disabled=true;
  }
  if(libraryTab==='photos')filterPhotos($('#library-content .photo-library'));saveWorkspace();if(focusId){const el=document.getElementById(focusId);if(el){el.focus();try{el.setSelectionRange(caret,caret);}catch{}}}
@@ -243,6 +244,81 @@ function quizQuestionEditor({question,answer,image,condition,success,failure},in
 function closeQuizWizardPlayer(){
  quizWizardPlayer?.destroy();
  quizWizardPlayer=null;
+}
+function orderGuideActive(){return !!project.orderTutorial&&!project.orderTutorial.finished;}
+function studioGuideActive(){return quizGuideActive()||orderGuideActive();}
+function guideTesting(){return orderGuideActive()?project.orderTutorial.step==='test':wizardStep()===7;}
+function guidedModel(){
+ if(needsQuizModel())return 'quiz';
+ if(orderGuideActive()&&['catalog','basket','receipt'].includes(project.orderTutorial.step))return project.orderTutorial.step;
+ return '';
+}
+function openOrderDemo(level){
+ closeQuizWizardPlayer();
+ quizWizardMode='order-demo';
+ $('#quiz-wizard-step').textContent=level+' · Défi commande';
+ $('#quiz-wizard-title').textContent='Essaie une appli de commande';
+ $('#quiz-wizard-body').innerHTML=`<div class="quiz-wizard-split"><div class="quiz-wizard-intro">
+ <p>Ouvre la carte, ajoute un article, puis passe par le panier pour confirmer la commande.</p>
+ <p>Ensuite, crée ta propre carte et teste une commande dans ton appli.</p>
+ <button class="solid-button" data-start-order-guide="${level}">Créer mon appli →</button></div>
+ <div class="quiz-wizard-phone app-player" aria-label="Application de commande exemple"></div></div>`;
+ $('#quiz-wizard').showModal();
+ quizWizardPlayer=createPlayer($('#quiz-wizard .app-player'),mobileAppTemplate());
+}
+function orderGuideReady(){
+ const guide=project.orderTutorial,{menu,openBasket,cart}=orderParts(project);
+ if(guide.step==='menu'){
+  const minimum=guide.level==='3e'?3:2;
+  return !!guide.shop?.trim()&&menu?.initial.length>=minimum&&menu.initial.every(item=>item.name?.trim()&&item.price>0);
+ }
+ if(guide.step==='links')return openBasket?.events.click.some(a=>a.type==='navigate'&&a.screen===guide.basket)
+  &&cart?.events.click.some(a=>a.type==='navigate'&&a.screen===guide.receipt);
+ return false;
+}
+function updateOrderGuide(){
+ const next=$('[data-order-continue]');
+ if(next)next.disabled=!orderGuideReady();
+}
+function orderBuildGuide(){
+ const guide=project.orderTutorial,{menu,basket,receipt,cart,openBasket}=orderParts(project);
+ const stages=guide.level==='3e'?['catalog','menu','basket','receipt','links','test']:['catalog','menu','basket','test'];
+ const step=stages.indexOf(guide.step)+1;
+ let title='',content='';
+ if(guidedModel()){
+  const model=screenTemplates.find(t=>t.id===guide.step);
+  title='Ajoute le modèle « '+model.name+' »';
+  content=`<p>Ouvre <strong>Modèles</strong> à gauche, puis glisse <strong>${esc(model.name)}</strong> dans le téléphone.</p><p id="order-model-hint" role="status"></p>`;
+ }else if(guide.step==='menu'){
+  title='Compose ta carte';
+  const minimum=guide.level==='3e'?3:2;
+  content=`<p>Choisis le nom de ton restaurant. Crée au moins ${minimum} articles avec un nom et un prix. Tu peux aussi ajouter des photos.</p>
+  <label class="field-label">Nom du restaurant<input class="full" data-order-name value="${esc(guide.shop||'')}" maxlength="60" placeholder="Ex. Juvign’Miam"></label>
+  ${menu?renderListContent(menu):''}<button class="solid-button" data-order-continue disabled>Continuer →</button>`;
+ }else if(guide.step==='links'){
+  title='Relie tes écrans';
+  const link=(label,key,target,actions)=>`<label class="field-label">${label}<select class="full" data-order-link="${key}">${option('','Choisir un écran',actions.find(a=>a.type==='navigate')?.screen||'')}${option(target.id,target.name,actions.find(a=>a.type==='navigate')?.screen||'')}</select></label>`;
+  content=`<p>Choisis la destination de chaque bouton. Règle aussi les frais de livraison.</p>
+  ${link('« Voir mon panier » ouvre','basket',basket,openBasket.events.click)}
+  ${link('« Confirmer » ouvre','receipt',receipt,cart.events.click)}
+  <label class="field-label">Livraison en €<input class="full" type="number" min="0" step="0.5" data-order-delivery value="${cart.props.delivery}"></label>
+  <button class="solid-button" data-order-continue disabled>Tester mon appli →</button>`;
+ }else{
+  title='Passe une commande';
+  content=`<p id="order-test-status" role="status">${guide.tested?'Commande testée.':'Ajoute un article, ouvre le panier puis confirme la commande.'}</p>
+  <button class="outline-button" data-order-test>Recommencer le test</button> <button class="solid-button" data-order-finish ${guide.tested?'':'disabled'}>Terminer</button>`;
+ }
+ return `<section id="order-build-guide" class="quiz-guide"><small>Défi commande · ${guide.level} · Étape ${step}/${stages.length}</small><h3>${esc(title)}</h3>${content}</section>`;
+}
+function startOrderTest(){
+ screenId=project.orderTutorial.catalog;mode='test';testSnapshot=null;testNeedsRestore=false;
+ renderAll();player.reset();
+}
+function recordOrderTest(detail){
+ if(!orderGuideActive()||project.orderTutorial.step!=='test'||project.orderTutorial.tested)return;
+ const {cart,receipt}=orderParts(project);
+ if(detail.orderPlaced!==cart?.id||receipt&&detail.screen!==receipt.id)return;
+ project.orderTutorial.tested=true;save();renderInspector();
 }
 function openQuizDemo(existing){
  closeQuizWizardPlayer();
@@ -441,6 +517,7 @@ function renderListContent(v){
  return '<div class="list-content-heading"><strong>Contenu de la liste</strong><button class="solid-button" data-add-record>＋ Ajouter</button></div>'+v.initial.map((item,i)=>`<div class="record"><div class="record-heading"><span>Élément ${i+1}</span><button class="record-delete" data-delete-record="${i}">✕</button></div>${(v.fields||[]).length?(v.fields||[]).map(f=>field(esc(f.label||f.name),f.type==='image'?recordPhotoField(item?.[f.name],i,f.name):f.type==='boolean'?`<select data-record-field="${i}" data-record-key="${esc(f.name)}" data-record-type="boolean">${option('true','Vrai',String(item?.[f.name]))}${option('false','Faux',String(item?.[f.name]))}</select>`:`<input type="${f.type==='number'?'number':'text'}" data-record-field="${i}" data-record-key="${esc(f.name)}" value="${esc(item?.[f.name]??'')}" step="any">`)).join(''):`<input data-record-field="${i}" value="${esc(typeof item==='object'?JSON.stringify(item):item)}">`}</div>`).join('');
 }
 function activeList(){
+ if(orderGuideActive()&&project.orderTutorial.step==='menu')return orderParts(project).menu;
  const target=selected();
  return selectedVariable?(target?.type==='list'?target:null):project.variables.find(v=>v.type==='list'&&v.name===target?.props.variable);
 }
@@ -483,14 +560,14 @@ function renderInspector(){
   const questions=quizQuestions(currentScreen());
   if(questions.length)html=quizEditor(questions)+html;
  }
- const guided=quizGuideActive();
- if(guided)html=quizBuildGuide()+html;
+ const guided=studioGuideActive();
+ if(guided)html=(orderGuideActive()?orderBuildGuide():quizBuildGuide())+html;
  $('#inspector-content').innerHTML=html;
  for(const control of $('#selection-tools').querySelectorAll('button'))control.disabled=guided;
  if(guided)for(const control of $('#inspector-content').querySelectorAll('button,input,select,textarea')){
-  if(!control.closest('#quiz-build-guide'))control.disabled=true;
+  if(!control.closest('#quiz-build-guide,#order-build-guide'))control.disabled=true;
  }
- updateQuizWizardButtons();const bank=$('#inspector-content .photo-library');if(bank)filterPhotos(bank);saveWorkspace();
+ updateQuizWizardButtons();updateOrderGuide();const bank=$('#inspector-content .photo-library');if(bank)filterPhotos(bank);saveWorkspace();
 }
 function issues(){return projectIssues(project);}
 function renderIssues(){const list=issues();$('#issues-button').textContent=list.length?list.length+' liaison'+(list.length>1?'s':'')+' à vérifier':'';$('#issues-button').className=list.length?'warning':'';}
@@ -512,6 +589,16 @@ function mutateProperty(input,redraw=false){const target=selected();if(!target)r
 }
 document.addEventListener('input',event=>{
  const el=event.target;
+ if(orderGuideActive()&&el.hasAttribute('data-order-name')){
+  commit(()=>{
+   const {catalog}=orderParts(project),name=el.value.trim();
+   project.orderTutorial.shop=el.value;project.name=name||'Mon appli de commande';
+   catalog.nodes.find(n=>n.type==='heading').props.text=name||'Carte du restaurant';
+  },{redraw:false,key:'order-name'});updateOrderGuide();return;
+ }
+ if(orderGuideActive()&&el.hasAttribute('data-order-delivery')){
+  commit(()=>orderParts(project).cart.props.delivery=Math.max(0,Number(el.value)||0),{redraw:false,key:'order-delivery'});return;
+ }
  if(el.hasAttribute('data-quiz-theme')&&currentScreen().quizTutorial){
   commit(()=>{
    const screen=currentScreen(),title=screen.nodes.find(node=>node.type==='heading'),theme=el.value;
@@ -557,8 +644,15 @@ document.addEventListener('input',event=>{
  if(el.dataset.themeProp)commit(()=>{if(el.dataset.themeProp==='background')setAppBackground(project,el.value);else project.theme[el.dataset.themeProp]=el.type==='number'?Math.min(Number(el.max||60),Math.max(Number(el.min||0),Number(el.value))):el.value;},{redraw:false,key:'theme.'+el.dataset.themeProp});
  if(el.dataset.recordField!==undefined)updateRecord(el);
 });
-function updateRecord(el){const v=activeList();if(!v||v.type!=='list')return;const index=Number(el.dataset.recordField);const val=el.type==='number'?Number(el.value):el.dataset.recordType==='boolean'?el.value==='true':el.value;commit(()=>{if(el.dataset.recordKey){if(!v.initial[index]||typeof v.initial[index]!=='object')v.initial[index]={};v.initial[index][el.dataset.recordKey]=val;}else v.initial[index]=val;},{redraw:false,key:v.name+'.'+index+'.'+(el.dataset.recordKey||'')});}
+function updateRecord(el){const v=activeList();if(!v||v.type!=='list')return;const index=Number(el.dataset.recordField);const val=el.type==='number'?Number(el.value):el.dataset.recordType==='boolean'?el.value==='true':el.value;commit(()=>{if(el.dataset.recordKey){if(!v.initial[index]||typeof v.initial[index]!=='object')v.initial[index]={};v.initial[index][el.dataset.recordKey]=val;}else v.initial[index]=val;},{redraw:false,key:v.name+'.'+index+'.'+(el.dataset.recordKey||'')});updateOrderGuide();}
 document.addEventListener('change',event=>{
+ if(orderGuideActive()&&event.target.dataset.orderLink){
+  const {openBasket}=orderParts(project),el=event.target;
+  commit(()=>{
+   if(el.dataset.orderLink==='basket')openBasket.events.click=el.value?[{type:'navigate',screen:el.value}]:[];
+   else connectOrderCheckout(project,el.value);
+  },{redraw:false});updateOrderGuide();return;
+ }
  if(event.target.hasAttribute('data-quiz-layout')){
   commit(()=>{const screen=currentScreen();screen.quizLayout=event.target.value;syncQuizSteps(screen);});return;
  }
@@ -582,6 +676,19 @@ document.addEventListener('click',event=>{
  const b=event.target.closest('button');if(!b||b.disabled)return;
  if(b.hasAttribute('data-use-app-style')){const n=selected();if(n)commit(()=>{n.style.color='';n.style.background='';delete n.style.radius;});return;}
  if(b.dataset.themePreset){commit(()=>applyThemePreset(project,b.dataset.themePreset));return;}
+ if(b.dataset.startOrderGuide){
+  $('#quiz-wizard').close();
+  activateProject(orderChallengeProject(b.dataset.startOrderGuide));return;
+ }
+ if(b.hasAttribute('data-order-continue')&&orderGuideReady()){
+  const guide=project.orderTutorial;
+  commit(()=>{guide.step=guide.step==='menu'?'basket':'test';});
+  if(guide.step==='test')startOrderTest();return;
+ }
+ if(b.hasAttribute('data-order-test')){startOrderTest();return;}
+ if(b.hasAttribute('data-order-finish')&&project.orderTutorial?.tested){
+  commit(()=>{project.orderTutorial.finished=true;screenId=project.orderTutorial.catalog;mode='design';});return;
+ }
  if(b.hasAttribute('data-resume-quiz')){openQuizWizard();return;}
  if(b.hasAttribute('data-start-quiz-wizard')){
   const keep=quizWizardMode==='demo-existing';
@@ -668,7 +775,7 @@ document.addEventListener('click',event=>{
  if(b.hasAttribute('data-icon-choice')){commit(()=>{const value=b.dataset.iconChoice;if(b.dataset.iconPath==='screen.menuIcon')currentScreen().menuIcon=value?'icon:'+value:'';else if(selected()){const n=selected(),previous=iconChoices.find(i=>i.id===n.props?.icon);if(n.type==='icon'&&(!n.props.label||n.props.label===previous?.label))n.props.label=iconChoices.find(i=>i.id===value)?.label||'Icône';safeSet(n,b.dataset.iconPath,value);}});return;}
  if(b.dataset.orderNavigation){commit(()=>moveNavigationItem(project,b.dataset.orderNavigation,Number(b.dataset.delta)));return;}
  if(b.hasAttribute('data-create-settings')){commit(()=>{const s=addScreenTemplate(project,'settings');screenId=s.id;selectedId=selectedVariable=null;setNavigation(project,{enabled:true,headerIcon:'settings',settingsScreen:s.id});});return;}
- if(b.dataset.screenModel&&needsQuizModel()){$('#quiz-model-hint').textContent='Glisse la carte Quiz dans le téléphone pour continuer.';return;}
+ if(b.dataset.screenModel&&guidedModel()){const hint=$('#quiz-model-hint')||$('#order-model-hint');if(hint)hint.textContent='Glisse la carte dans le téléphone pour continuer.';return;}
  if(b.dataset.screenModel){commit(()=>{screenId=addScreenTemplate(project,b.dataset.screenModel).id;selectedId=selectedVariable=null;mode='design';});return;}
  if(b.dataset.addLayout){addNode('container',0,b.dataset.addLayout);return;}
  if(b.dataset.addColumns){addNode('container',Number(b.dataset.addColumns));return;}
@@ -716,6 +823,7 @@ document.addEventListener('click',event=>{
  if(b.dataset.deleteColumn!==undefined){commit(()=>{const v=selected(),[f]=v.fields.splice(Number(b.dataset.deleteColumn),1);for(const row of v.initial)if(row&&typeof row==='object')delete row[f.name];});return;}
  if(b.hasAttribute('data-delete-variable')){if(!confirm('Supprimer cette variable ? Les composants liés devront être reconfigurés.'))return;commit(()=>{project.variables=project.variables.filter(v=>v.name!==selectedVariable);selectedVariable=null;});return;}
  if(b.hasAttribute('data-rename-variable')){const previous=selectedVariable,next=prompt('Nouvel identifiant de la variable',previous);if(!next||!/^\w+$/.test(next)||['__proto__','constructor','prototype'].includes(next)||project.variables.some(v=>v.name===next))return;commit(()=>{const visit=obj=>{if(!obj||typeof obj!=='object')return;for(const [k,v]of Object.entries(obj)){if(typeof v==='string'){if(['variable','discountVariable','visibleVariable','textVariable','darkVariable','quizImageFor'].includes(k)&&v===previous||['variable','length','cartTotal'].includes(obj.kind)&&k==='name'&&v===previous)obj[k]=next;else obj[k]=v.replaceAll('{{'+previous+'}}','{{'+next+'}}').replaceAll('{{'+previous+'.','{{'+next+'.');}else visit(v);}};selected().name=next;visit(project);selectedVariable=next;});return;}
+ if(b.dataset.template==='order-tutorial'){$('#new-dialog').close();openOrderDemo(studioLevel||'3e');return;}
  if(b.dataset.template==='quiz-tutorial'){$('#new-dialog').close();openQuizDemo(false);return;}
  if(b.dataset.template){const next=b.dataset.template==='starter'?starterProject():b.dataset.template==='mobile'?mobileAppTemplate():b.dataset.template==='restaurant'?restaurantTemplate():b.dataset.template==='tasks'?tasksTemplate():blankProject();if(activateProject(next))$('#new-dialog').close();return;}
  if(b.dataset.close){if(b.dataset.close==='preview-dialog')previewPlayer?.destroy();$('#'+b.dataset.close).close();}
@@ -772,7 +880,7 @@ function elementPlacement(event){
 }
 function editorDrop(event){
  if(!dragItem||dragItem.projectId!==project.id)return null;
- if(quizGuideActive()&&(!needsQuizModel()||dragItem.model!=='quiz'||!event.target.closest('#player')))return null;
+ if(studioGuideActive()&&(!guidedModel()||dragItem.model!==guidedModel()||!event.target.closest('#player')))return null;
  if(dragItem.action||dragItem.moveAction){const zone=event.target.closest('[data-action-target]');if(!zone||!zone.closest('#inspector-content')||dragItem.nodeId!==selectedId)return null;const path=zone.dataset.actionTarget;if(dragItem.moveAction&&path.startsWith(dragItem.moveAction+'.'))return null;const children=[...zone.children].filter(el=>el.classList.contains('action-card')),at=insertionIndex(children.map(el=>el.getBoundingClientRect()),event.clientX,event.clientY),r=(children[at]||children.at(-1))?.getBoundingClientRect(),bounds=zone.getBoundingClientRect();return {actionPath:path,index:at,zone,line:{left:bounds.left+4,top:r?(children[at]?r.top:r.bottom):bounds.top+7,width:bounds.width-8,height:4}};}
  if(mode!=='design')return null;const place=elementPlacement(event);if(!place)return null;
  if(dragItem.move){let parent=place.parent==='root'?null:findNode(project,place.parent);while(parent){if(parent.node.id===dragItem.move)return null;parent=parent.parent?findNode(project,parent.parent.id):null;}}
@@ -784,7 +892,7 @@ function showDragMark(place){clearDragMarks();if(!place)return;place.zone.classL
 }
 document.addEventListener('dragstart',event=>{
  const c=event.target.closest('[data-add-component],[data-add-action],[data-add-columns],[data-add-layout],[data-move-node],[data-open-navigation],[data-screen-model],[data-pick-image],[data-icon-choice],[data-move-action-block]');if(!c||!c.closest('#library-content,#player,#inspector-content')||c.disabled)return;
- if(quizGuideActive()&&(!needsQuizModel()||c.dataset.screenModel!=='quiz')){event.preventDefault();return;}
+ if(studioGuideActive()&&(!guidedModel()||c.dataset.screenModel!==guidedModel())){event.preventDefault();return;}
  if(event.target.matches('input,textarea,select')||c.dataset.moveNode&&mode!=='design')return;
  const photo=photoBank.find(photo=>photo.src===c.dataset.pickImage),icon=iconChoices.find(icon=>icon.id===c.dataset.iconChoice);
  dragItem=c.dataset.addLayout?{layout:c.dataset.addLayout}:c.dataset.addColumns?{columns:Number(c.dataset.addColumns)}:c.dataset.moveNode?{move:c.dataset.moveNode}:c.dataset.addComponent?{component:c.dataset.addComponent}:c.hasAttribute('data-open-navigation')?{menu:true}:c.dataset.screenModel?{model:c.dataset.screenModel}:photo?{photo:photo.src,alt:photo.label}:icon?{icon:icon.id,label:icon.label}:c.dataset.moveActionBlock?{moveAction:c.dataset.moveActionBlock}:c.dataset.addAction?{action:c.dataset.addAction}:null;
@@ -799,6 +907,10 @@ document.addEventListener('drop',event=>{
  try{
   if(place.actionPath){if(item.moveAction)commit(()=>moveActionBlock(selected(),item.moveAction,place.actionPath,place.index));else insertAction(item.action,place.actionPath,place.index);return;}
   if(item.menu){commit(()=>{setNavigation(project,{enabled:true});libraryTab='screens';});return;}
+  if(item.model&&orderGuideActive()){
+   commit(()=>{screenId=installOrderModel(project,item.model).id;selectedId=selectedVariable=null;mode='design';});
+   if(project.orderTutorial.step==='test')startOrderTest();return;
+  }
   if(item.model&&needsQuizModel()){commit(dropGuidedQuiz);return;}
   if(item.model){commit(()=>{screenId=addScreenTemplate(project,item.model).id;selectedId=selectedVariable=null;mode='design';});return;}
   if(place.replace){commit(()=>{const n=findNode(project,place.replace)?.node;if(!n)return;if(item.photo){const previous=photoBank.find(photo=>photo.src===n.props.src);if(!n.props.alt||n.props.alt==='Image'||n.props.alt===previous?.label)n.props.alt=item.alt;n.props.src=item.photo;n.props.srcVariable='';}else{n.props.icon=item.icon;if(n.type==='icon')n.props.label=item.label;}selectedId=n.id;selectedVariable=null;inspectorTab='props';});return;}
@@ -814,7 +926,7 @@ $('#design-mode').onclick=()=>{if(mode==='test')testSnapshot=player.getSnapshot(
 $('#undo').onclick=()=>{if(!history.length)return;lastEdit='';future.push(editorSnapshot());restoreEditor(history.pop());};
 $('#redo').onclick=()=>{if(!future.length)return;lastEdit='';history.push(editorSnapshot());restoreEditor(future.pop());};
 document.addEventListener('keydown',event=>{
- if(quizGuideActive()||['INPUT','TEXTAREA','SELECT'].includes(document.activeElement.tagName)||document.activeElement.isContentEditable||document.querySelector('dialog[open]'))return;
+ if(studioGuideActive()||['INPUT','TEXTAREA','SELECT'].includes(document.activeElement.tagName)||document.activeElement.isContentEditable||document.querySelector('dialog[open]'))return;
  if((event.ctrlKey||event.metaKey)&&event.key.toLowerCase()==='z'){event.preventDefault();(event.shiftKey?$('#redo'):$('#undo')).click();return;}
  if(mode!=='design'||!selectedId||inspectorTab!=='props'||event.repeat)return;
  const operation=(event.ctrlKey||event.metaKey)&&event.key.toLowerCase()==='d'?'duplicate':event.key==='Delete'?'delete':event.altKey&&event.key==='ArrowUp'?'up':event.altKey&&event.key==='ArrowDown'?'down':null;
@@ -856,7 +968,7 @@ $('#backup').onclick=()=>download(JSON.stringify(project,null,2),'application/js
 $('#import-file').onchange=async event=>{const file=event.target.files[0];if(!file)return;try{if(file.size>30*1024*1024)throw Error('Ce fichier est trop volumineux.');const next=JSON.parse(await file.text());if(!validateProject(next))throw Error('Choisis un projet JSON de cet éditeur.');const imported=importedProjectCopy(localStorage,project,next);if(activateProject(imported,{undoable:true})&&imported.id!==next.id)$('#save-status').textContent='Projet importé comme nouvelle copie.';}catch(error){$('#save-status').textContent=error instanceof SyntaxError?'Ce fichier ne contient pas un projet JSON valide.':error.message;}finally{event.target.value='';}};
 $('#export-app').onclick=async()=>{const button=$('#export-app');button.disabled=true;try{const output=structuredClone(project),images=new Map();const collect=obj=>{if(!obj||typeof obj!=='object')return;for(const value of Object.values(obj))if(typeof value==='string'&&/^assets\/[a-z0-9-]+\.(jpg|png|webp)$/i.test(value))images.set(value,null);else if(value&&typeof value==='object')collect(value);};collect(output);await Promise.all([...images.keys()].map(async url=>{const response=await fetch(url);if(!response.ok)throw Error('Image introuvable : '+url);const data=await new Promise((resolve,reject)=>{const r=new FileReader();r.onload=()=>resolve(r.result);r.onerror=reject;response.arrayBuffer().then(buffer=>r.readAsDataURL(new Blob([buffer],{type:url.endsWith('.png')?'image/png':url.endsWith('.webp')?'image/webp':'image/jpeg'}))).catch(reject);});images.set(url,data);}));const replace=obj=>{for(const [k,v]of Object.entries(obj))if(typeof v==='string'&&images.has(v))obj[k]=images.get(v);else if(v&&typeof v==='object')replace(v);};replace(output);const json=JSON.stringify(output).replace(/</g,'\\u003c').replace(/\u2028/g,'\\u2028').replace(/\u2029/g,'\\u2029');const html=`<!doctype html><html lang="fr"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta http-equiv="Content-Security-Policy" content="default-src 'none'; img-src data:; style-src 'unsafe-inline'; script-src 'unsafe-inline'; connect-src 'none'; base-uri 'none'"><title>${esc(output.name)}</title><style>${playerCSS}body{margin:0;background:#eee4f3;display:grid;place-items:center;min-height:100vh}.app-player{width:min(100vw,420px);height:100dvh;max-height:1000px;box-shadow:0 0 30px #29173f20}</style></head><body><main id="application" class="app-player"></main><script>const renderAppIcon=(${renderAppIcon.toString()});const createLocalCamera=(${createLocalCamera.toString()});const createAppTimers=(${createAppTimers.toString()});(${createPlayer.toString()})(document.querySelector('#application'),${json},{persist:true});</script></body></html>`;download(html,'text/html',(project.name.normalize('NFD').replace(/[\u0300-\u036f]/g,'').replace(/[^a-zA-Z0-9]+/g,'-')||'application')+'.html');$('#save-status').textContent='Application HTML exportée, images incluses.';}catch(error){$('#save-status').textContent='Export : '+error.message;}finally{button.disabled=false;}};
 player=createPlayer($('#player'),project,{design:true,quizRestart:true,onSelect:selectNode,onChange:detail=>{lastState=detail;if(!sessionReady)return;if(mode==='test'&&detail.snapshot)testSnapshot=detail.snapshot;
- if(mode==='test')recordQuizTest(detail);if(mode==='test'&&detail.screen){const changed=screenId!==detail.screen;screenId=detail.screen;if(changed){selectedId=selectedVariable=null;renderScreensPicker();renderLibrary();renderInspector();}$('#screen-picker').value=screenId;$('#canvas-status').textContent='Test · '+currentScreen().name;}saveWorkspace();}});
+ if(mode==='test'){recordQuizTest(detail);recordOrderTest(detail);}if(mode==='test'&&detail.screen){const changed=screenId!==detail.screen;screenId=detail.screen;if(changed){selectedId=selectedVariable=null;renderScreensPicker();renderLibrary();renderInspector();}$('#screen-picker').value=screenId;$('#canvas-status').textContent='Test · '+currentScreen().name;}saveWorkspace();}});
 $('#share-app').onclick=async()=>{
  $('#share-dialog').showModal();$('#share-status').textContent='Création du lien…';$('#share-qr').replaceChildren();$('#copy-share').disabled=true;$('#open-share').hidden=true;$('#share-link').value='';
  try{
@@ -909,6 +1021,7 @@ for(const button of levelDialog.querySelectorAll('[data-studio-level]'))button.o
  if(firstChoice){
   if(freshWorkspace&&next==='4e'){project=quizTutorialProject();loadedSession=null;applyWorkspace(null);}
   startWorkspace();
+  if(freshWorkspace&&next==='3e')openOrderDemo('3e');
  }else renderLibrary();
  if(!stored)$('#save-status').textContent='Le choix du niveau ne peut pas être enregistré.';
 };

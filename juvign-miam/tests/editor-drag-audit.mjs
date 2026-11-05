@@ -197,3 +197,60 @@ export async function auditQuizTutorial(browser,url){
   console.log('Passed the 4e quiz example, guided stages, refresh recovery, and handoff to the studio.');
  }finally{await page.close();}
 }
+
+export async function auditOrderChallenges(browser,url){
+ for(const level of ['4e','3e']){
+  const page=await browser.newPage({viewport:{width:1440,height:900}});
+  try{
+   await page.addInitScript(level=>{
+    localStorage.setItem('juvign-miam-studio-level',level);
+    localStorage.setItem('juvign-miam-starter-complete','1');
+   },level);
+   await page.goto(url);
+   await page.locator('#new-project').click();
+   await page.locator('[data-template=order-tutorial]').click();
+   const demo=page.locator('#quiz-wizard'),demoApp=demo.locator('.rt-screen');
+   await demoApp.getByRole('button',{name:'Voir la carte',exact:true}).click();
+   await demoApp.getByRole('button',{name:'Ajouter',exact:true}).first().click();
+   await demoApp.getByRole('button',{name:'Voir mon panier',exact:true}).click();
+   await demoApp.getByRole('button',{name:'Confirmer',exact:true}).click();
+   if(!(await demoApp.getByText('Commande enregistrée',{exact:true}).count()))throw Error('The sample order did not reach confirmation.');
+   await demo.getByRole('button',{name:'Créer mon appli'}).click();
+   const phone=page.locator('#player .rt-screen'),guide=page.locator('#order-build-guide');
+   if(await phone.locator('[data-player-node]').count())throw Error('The order challenge must start blank.');
+   const drop=async model=>{
+    await page.locator('[data-tab=models]').click();
+    await page.locator('[data-screen-model='+model+']').dragTo(phone);
+   };
+   await drop('catalog');
+   await guide.locator('[data-order-name]').fill('Snack du collège');
+   const minimum=level==='3e'?3:2;
+   for(let index=0;index<minimum;index++){
+    if(index)await guide.locator('[data-add-record]').click();
+    await guide.locator('[data-record-field="'+index+'"][data-record-key=name]').fill('Plat '+(index+1));
+    await guide.locator('[data-record-field="'+index+'"][data-record-key=price]').fill(String(5+index));
+   }
+   await page.reload();
+   if(await guide.locator('[data-order-name]').inputValue()!=='Snack du collège')throw Error('Order challenge did not save progress.');
+   await guide.locator('[data-order-continue]').click();
+   await drop('basket');
+   if(level==='3e'){
+    await drop('receipt');
+    for(const key of ['basket','receipt']){
+     const field=guide.locator('[data-order-link='+key+']');
+     await field.selectOption({index:1});
+    }
+    await guide.locator('[data-order-delivery]').fill('3');
+    await guide.locator('[data-order-continue]').click();
+   }
+   await phone.getByRole('button',{name:'Ajouter',exact:true}).first().click();
+   await phone.getByRole('button',{name:'Voir mon panier',exact:true}).click();
+   if(level==='3e'&&!(await phone.getByText('3,00',{exact:false}).count()))throw Error('The chosen delivery fee did not reach the basket.');
+   await phone.getByRole('button',{name:'Confirmer',exact:true}).click();
+   if(level==='3e'&&!(await phone.getByText('1 × Plat 1',{exact:true}).count()))throw Error('The receipt is missing the ordered item.');
+   await guide.getByRole('button',{name:'Terminer'}).click();
+   if(await guide.count()||!await page.locator('#add-screen').isEnabled())throw Error('The editor did not unlock after the order challenge.');
+   console.log('Passed the '+level+' order challenge, example, refresh, and completed order.');
+  }finally{await page.close();}
+ }
+}

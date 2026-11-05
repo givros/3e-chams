@@ -300,7 +300,7 @@ export function createPlayer(root,project,options={}){
    if(button.hasAttribute('data-dismiss'))showNotice('');
    if(button.dataset.remove){const list=read(button.dataset.remove)||[];write(button.dataset.remove,list.filter((_,i)=>i!==Number(button.dataset.index)));}
    if(button.dataset.cart){const list=clone(read(button.dataset.list)||[]),index=Number(button.dataset.index),item=list[index];if(item){item.quantity=numeric(item.quantity)+Number(button.dataset.cart);if(item.quantity<=0)list.splice(index,1);write(button.dataset.list,list);}}
-   let quizScored;
+   let quizScored,orderPlaced;
    if(button.dataset.event){
     const n=find(button.dataset.node),index=Number(button.dataset.index),item=Number.isInteger(index)?(read(n.props.variable)||[])[index]:null;
     const pair=activeQuizPairs.find(pair=>pair.button.id===n.id);
@@ -308,12 +308,14 @@ export function createPlayer(root,project,options={}){
     if(n.props.quizScore&&activeQuizPairs.some(pair=>!hasQuizAnswer(pair))){
      showNotice('Réponds à toutes les questions avant de corriger.',true);render();return;
     }
+    const checkout=n.type==='cart'&&button.dataset.event==='click'&&Array.isArray(read(n.props.variable))&&read(n.props.variable).length>0;
     run(n.events[button.dataset.event],{item,index,node:n});
+    if(checkout)orderPlaced=n.id;
     if(pair){lockQuizAnswer(pair);if(activeQuizPairs.length===1)quizScored=screen;}
     if(n.props.quizScore){activeQuizPairs.forEach(lockQuizAnswer);quizScored=screen;}
     if(pair&&quizPage()&&!quizPage().last)focusQuizStep=true;
    }
-   persist({quizScored});render();if(drawerOpen)root.querySelector('.rt-drawer button')?.focus();
+   persist({quizScored,orderPlaced});render();if(drawerOpen)root.querySelector('.rt-drawer button')?.focus();
   }catch(error){showNotice(error.message);render();options.onChange?.({screen,state:stateSnapshot(),log:clone(log),notice});}
  });
  listen('keydown',event=>{
