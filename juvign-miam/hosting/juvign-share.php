@@ -1,9 +1,7 @@
 <?php
 declare(strict_types=1);
 
-const MAX_PROJECT = 8 * 1024 * 1024;
-const MAX_STORAGE = 256 * 1024 * 1024;
-const MAX_SHARES = 2000;
+const MAX_REQUEST = 8 * 1024 * 1024;
 
 function respond(int $status, array $data): never {
     http_response_code($status);
@@ -61,21 +59,6 @@ if (!validSlug($slug) || strlen($slug) > 60) {
     respond(400, ['error' => 'Nom de lien invalide.']);
 }
 
-$body = file_get_contents('php://input', false, null, 0, MAX_PROJECT + 1);
-if ($body === false || strlen($body) > MAX_PROJECT) {
-    respond(413, ['error' => 'Le projet dépasse 8 Mo. Réduis la taille des images ou exporte en HTML.']);
-}
-try {
-    $project = json_decode($body, true, 64, JSON_THROW_ON_ERROR);
-} catch (JsonException $error) {
-    respond(400, ['error' => 'Le projet est illisible.']);
-}
-if (($project['version'] ?? null) !== 3 || !is_string($project['name'] ?? null)
-    || !is_array($project['screens'] ?? null) || !$project['screens']
-    || !is_array($project['variables'] ?? null)) {
-    respond(400, ['error' => 'Projet de studio invalide.']);
-}
-
 if (!is_dir($directory) && !@mkdir($directory, 0700) && !is_dir($directory)) {
     respond(503, ['error' => 'Le service de partage est indisponible.']);
 }
@@ -83,28 +66,89 @@ $lock = @fopen($directory . '/.lock', 'c');
 if (!$lock || !flock($lock, LOCK_EX)) {
     respond(503, ['error' => 'Le service de partage est indisponible.']);
 }
+function readRequest(): string {
+    $body = file_get_contents('php://input', false, null, 0, MAX_REQUEST + 1);
+    if ($body === false || strlen($body) > MAX_REQUEST) {
+        respond(413, ['error' => 'Ce fragment est trop volumineux.']);
+    }
+    return $body;
+}
+function storeFragment(string $file, string $body, int $offset): void {
+    $handle = @fopen($file, 'c+b');
+    if (!$handle || fseek($handle, $offset) !== 0) {
+        respond(503, ['error' => 'Impossible d’enregistrer cette application.']);
+    }
+    $length = strlen($body);
+    if (fwrite($handle, $body) !== $length || !fflush($handle)) {
+        ftruncate($handle, $offset);
+        respond(507, ['error' => 'Le serveur manque d’espace. Ton application peut toujours être exportée.']);
+    }
+    fclose($handle);
+}
+
+$operation = $_GET['upload'] ?? '';
+if ($operation === 'start') {
+    foreach (glob($directory . '/upload-*.tmp') ?: [] as $old) {
+        if (filemtime($old) < time() - 86400) {
+            @unlink($old);
+        }
+    }
+    $token = bin2hex(random_bytes(16));
+    storeFragment($directory . '/upload-' . $token . '.tmp', '', 0);
+    respond(201, ['token' => $token]);
+}
+
+if ($operation !== '') {
+    $token = $_GET['token'] ?? '';
+    if (!is_string($token) || !preg_match('/^[a-f0-9]{32}$/D', $token)) {
+        respond(400, ['error' => 'Transfert invalide.']);
+    }
+    $temp = $directory . '/upload-' . $token . '.tmp';
+    if (!is_file($temp)) {
+        respond(404, ['error' => 'Transfert introuvable. Relance le partage.']);
+    }
+    if ($operation === 'cancel') {
+        @unlink($temp);
+        respond(200, ['cancelled' => true]);
+    }
+    $offset = filter_var($_GET['offset'] ?? null, FILTER_VALIDATE_INT, ['options' => ['min_range' => 0]]);
+    if ($offset === false || filesize($temp) !== $offset) {
+        respond(409, ['error' => 'Transfert incomplet. Relance le partage.']);
+    }
+    if ($operation === 'chunk') {
+        $body = readRequest();
+        storeFragment($temp, $body, $offset);
+        respond(200, ['offset' => $offset + strlen($body)]);
+    }
+    if ($operation !== 'finish' || $offset === 0) {
+        respond(400, ['error' => 'Transfert invalide.']);
+    }
+} else {
+    $body = readRequest();
+    try {
+        $project = json_decode($body, true, 64, JSON_THROW_ON_ERROR);
+    } catch (JsonException $error) {
+        respond(400, ['error' => 'Le projet est illisible.']);
+    }
+    if (($project['version'] ?? null) !== 3 || !is_string($project['name'] ?? null)
+        || !is_array($project['screens'] ?? null) || !$project['screens']
+        || !is_array($project['variables'] ?? null)) {
+        respond(400, ['error' => 'Projet de studio invalide.']);
+    }
+    $temp = $directory . '/upload-' . bin2hex(random_bytes(16)) . '.tmp';
+    storeFragment($temp, $body, 0);
+}
+
+$digest = hash_file('sha256', $temp);
 $id = $slug;
 for ($suffix = 2; is_file($directory . '/' . $id . '.json'); $suffix++) {
-    if (file_get_contents($directory . '/' . $id . '.json') === $body) {
+    if (hash_file('sha256', $directory . '/' . $id . '.json') === $digest) {
+        @unlink($temp);
         respond(200, ['id' => $id]);
     }
     $id = $slug . '-' . $suffix;
 }
-
-$files = glob($directory . '/*.json');
-$used = 0;
-foreach ($files ?: [] as $file) {
-    $used += filesize($file) ?: 0;
-}
-if (count($files ?: []) >= MAX_SHARES || $used + strlen($body) > MAX_STORAGE) {
-    respond(507, ['error' => 'L’espace de partage est plein. Tu peux exporter ton application en HTML.']);
-}
-
-$temp = $directory . '/' . $id . '.tmp';
-if (@file_put_contents($temp, $body) !== strlen($body) || !@rename($temp, $directory . '/' . $id . '.json')) {
-    @unlink($temp);
+if (!@rename($temp, $directory . '/' . $id . '.json')) {
     respond(503, ['error' => 'Impossible d’enregistrer cette application.']);
 }
-flock($lock, LOCK_UN);
-fclose($lock);
 respond(201, ['id' => $id]);

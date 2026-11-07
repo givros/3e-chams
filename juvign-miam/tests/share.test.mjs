@@ -32,3 +32,27 @@ test('catalogue and basket templates link in both directions regardless of inser
   assert.ok(basket.nodes.some(n=>n.events.click.some(a=>a.type==='navigate'&&a.screen===catalog.id)));
  }
 });
+
+test('large projects publish in chunks without a total upload cutoff',async()=>{
+ const {publishProject}=await import('../src/share.js');
+ const project=blankProject();project.name='Grand projet';
+ project.screens[0].notes='a'.repeat(9*1024*1024);
+ const original=globalThis.fetch,received=[];
+ globalThis.fetch=async (url,{body})=>{
+  const params=new URL(url).searchParams,operation=params.get('upload');
+  if(operation==='start')return Response.json({token:'0123456789abcdef0123456789abcdef'});
+  if(operation==='chunk'){
+   assert.equal(Number(params.get('offset')),received.reduce((size,part)=>size+part.size,0));
+   assert.ok(body.size<=1024*1024);
+   received.push(body);
+   return Response.json({offset:Number(params.get('offset'))+body.size});
+  }
+  assert.equal(operation,'finish');
+  const complete=new Blob(received);
+  assert.equal(Number(params.get('offset')),complete.size);
+  assert.deepEqual(JSON.parse(await complete.text()),project);
+  return Response.json({id:'grand-projet'});
+ };
+ try{assert.equal(await publishProject(project),'https://givros-studio.fr/3e-chams/grand-projet');}
+ finally{globalThis.fetch=original;}
+});

@@ -1,3 +1,4 @@
+import {openProjectStorage} from './studio-project-storage.js';
 import {orderChallengeProject,orderParts,installOrderModel,connectOrderCheckout} from './studio-order-guide.js';
 import {quizQuestions,createQuizQuestion,updateQuizScore,syncQuizSteps,quizTutorialProject,quizTutorialProgress,quizTutorialTarget,unsetQuizAnswer,quizQuestionReady,quizDemoProject,setQuizQuestionImage,normalizeQuizImages} from './studio-quiz.js';
 import {loadEditorSession,saveEditorSession} from './studio-session.js';
@@ -27,11 +28,14 @@ const $=s=>document.querySelector(s),esc=v=>String(v??'').replace(/[&<>"']/g,c=>
 let photoCategory='all',photoQuery='';
 const typeLabels={text:'Texte',number:'Nombre',boolean:'Oui / non',list:'Liste',computed:'Calcul'};
 const storageKey=activeProjectKey;let project=blankProject(),loadMessage='',componentQuery='',componentCategory='all',modelQuery='',librarySaveTimer,imageJob=0,libraryCopyDownloaded=false;
+const projectStorage=await openProjectStorage(localStorage,()=>{
+ $('#save-status').textContent='Enregistrement impossible. Télécharge le projet JSON pour conserver tes modifications.';
+});
 let recovery=null;
-try{const loaded=loadActiveProject(localStorage);project=loaded.project;recovery=loaded.recovery||null;if(recovery)loadMessage='Une ancienne sauvegarde a été conservée pour récupération.';}catch{loadMessage='Enregistrement local indisponible.';}
+try{const loaded=loadActiveProject(projectStorage);project=loaded.project;recovery=loaded.recovery||null;if(recovery)loadMessage='Une ancienne sauvegarde a été conservée pour récupération.';}catch{loadMessage='Enregistrement local indisponible.';}
 
 let freshWorkspace=false;
-try{freshWorkspace=!localStorage.getItem(storageKey)&&!localStorage.getItem('juvign-miam-starter-complete')&&!recovery;}catch{}
+try{freshWorkspace=!projectStorage.getItem(storageKey)&&!localStorage.getItem('juvign-miam-starter-complete')&&!recovery;}catch{}
 const studioLevelKey='juvign-miam-studio-level';
 let studioLevel=null,showAdvancedTools=false;
 try{const savedLevel=localStorage.getItem(studioLevelKey);if(['4e','3e'].includes(savedLevel))studioLevel=savedLevel;}catch{}
@@ -60,7 +64,7 @@ const style=document.createElement('style');style.textContent=playerCSS;document
 function save(){
  syncDataLabels(project);
  clearTimeout(librarySaveTimer);
- if(recovery?.blocked){$('#save-status').textContent='Récupère l’ancienne sauvegarde avant d’enregistrer.';}else try{localStorage.setItem(storageKey,JSON.stringify(project));projectSaveFailed=false;$('#save-status').textContent='Enregistré sur cet ordinateur';librarySaveTimer=setTimeout(()=>{try{archiveProject(localStorage,project);}catch{$('#save-status').textContent='Bibliothèque indisponible : télécharge une sauvegarde du projet.';}},650);}catch{projectSaveFailed=true;$('#save-status').textContent='Stockage plein : télécharge le projet JSON.';}
+ if(recovery?.blocked){$('#save-status').textContent='Récupère l’ancienne sauvegarde avant d’enregistrer.';}else try{projectStorage.setItem(storageKey,JSON.stringify(project));projectSaveFailed=false;$('#save-status').textContent='Enregistré sur cet ordinateur';librarySaveTimer=setTimeout(()=>{try{archiveProject(projectStorage,project);}catch{$('#save-status').textContent='Bibliothèque indisponible : télécharge une sauvegarde du projet.';}},650);}catch{projectSaveFailed=true;$('#save-status').textContent='Stockage plein : télécharge le projet JSON.';}
  $('#undo').disabled=studioGuideActive()||!history.length;$('#redo').disabled=studioGuideActive()||!future.length;saveWorkspace();
 }
 function projectError(error){
@@ -70,16 +74,16 @@ function projectError(error){
 }
 function activateProject(next,{undoable=false}={}){
  if(recovery?.blocked){for(const id of ['new-dialog','projects-dialog'])$('#'+id).close();projectError(Error('Télécharge d’abord l’ancienne sauvegarde avec le bouton de récupération.'));return false;}
- try{saveWorkspace();clearTimeout(librarySaveTimer);normalizeQuizImages(next);switchProject(localStorage,project,next);if(undoable)snapshot();else{history=[];future=[];lastEdit='';lastEditTime=0;}sessionReady=false;project=next;let saved=null;try{saved=loadEditorSession(localStorage,next);}catch{}applyWorkspace(saved);sessionReady=true;save();renderAll();restoreWorkspaceView(saved);return true;}catch(error){projectError(error);return false;}
+ try{saveWorkspace();clearTimeout(librarySaveTimer);normalizeQuizImages(next);switchProject(projectStorage,project,next);if(undoable)snapshot();else{history=[];future=[];lastEdit='';lastEditTime=0;}sessionReady=false;project=next;let saved=null;try{saved=loadEditorSession(localStorage,next);}catch{}applyWorkspace(saved);sessionReady=true;save();renderAll();restoreWorkspaceView(saved);return true;}catch(error){projectError(error);return false;}
 }
 function renderProjectLibrary(){
- let records=listProjects(localStorage);if(!records.some(r=>r.project.id===project.id))records.unshift({project,updatedAt:new Date().toISOString()});
+ let records=listProjects(projectStorage);if(!records.some(r=>r.project.id===project.id))records.unshift({project,updatedAt:new Date().toISOString()});
  const query=normalizeSearch($('#project-library-search').value);
  records=records.filter(r=>!query||normalizeSearch(r.project.name).includes(query)).sort((a,b)=>(b.project.id===project.id)-(a.project.id===project.id)||b.updatedAt.localeCompare(a.updatedAt));
  $('#project-list').innerHTML=records.length?records.map(r=>{const p=r.project,active=p.id===project.id;return `<div class="project-row"><div><input data-project-name="${p.id}" aria-label="Nom de l’application ${esc(p.name)}" value="${esc(active?project.name:p.name)}"><small>${p.screens.length} écran${p.screens.length>1?'s':''} · ${new Date(r.updatedAt).toLocaleString('fr-FR',{timeZone:'Europe/Paris',day:'numeric',month:'short',hour:'2-digit',minute:'2-digit'})}</small></div><button class="project-open" data-project-open="${p.id}" ${active?'disabled':''}>${active?'Ouverte':'Ouvrir'}</button><button data-project-copy="${p.id}">Dupliquer</button><button class="danger" data-project-delete="${p.id}" ${active?'disabled':''}>Supprimer</button></div>`;}).join(''):'<p class="help">Aucune application trouvée.</p>';
- const copies=listRecoveries(localStorage);if(copies.length)$('#project-list').insertAdjacentHTML('beforeend',`<details class="advanced"><summary>Copies à récupérer (${copies.length})</summary>${copies.map(copy=>`<div class="project-recovery-row"><span>${esc(copy.name)}</span><button data-recover-copy="${esc(copy.key)}">Télécharger</button><button class="danger" data-delete-recovery="${esc(copy.key)}">Supprimer</button></div>`).join('')}</details>`);
+ const copies=listRecoveries(projectStorage);if(copies.length)$('#project-list').insertAdjacentHTML('beforeend',`<details class="advanced"><summary>Copies à récupérer (${copies.length})</summary>${copies.map(copy=>`<div class="project-recovery-row"><span>${esc(copy.name)}</span><button data-recover-copy="${esc(copy.key)}">Télécharger</button><button class="danger" data-delete-recovery="${esc(copy.key)}">Supprimer</button></div>`).join('')}</details>`);
 
- const status=projectLibraryStatus(localStorage);if(!status.readable&&status.raw)$('#project-list').insertAdjacentHTML('beforeend','<section class="project-error"><p>La bibliothèque est illisible. L’application ouverte reste utilisable.</p><button data-download-library>Récupérer une copie</button><button data-repair-library>Recréer la bibliothèque</button></section>');
+ const status=projectLibraryStatus(projectStorage);if(!status.readable&&status.raw)$('#project-list').insertAdjacentHTML('beforeend','<section class="project-error"><p>La bibliothèque est illisible. L’application ouverte reste utilisable.</p><button data-download-library>Récupérer une copie</button><button data-repair-library>Recréer la bibliothèque</button></section>');
 
 }
 function editorSnapshot(){return {project:JSON.stringify(project),screenId,selectedId,selectedVariable,inspectorTab,eventName,libraryTab};}
@@ -658,7 +662,7 @@ document.addEventListener('change',event=>{
  }
  if(event.target.hasAttribute('data-photo-category')){photoCategory=event.target.value;syncPhotoFilters();return;}
  const el=event.target;
- if(el.dataset.projectName){try{const name=el.value.trim()||'Mon application';if(el.dataset.projectName===project.id)commit(()=>project.name=name,{redraw:false});else{const record=listProjects(localStorage).find(r=>r.project.id===el.dataset.projectName);if(record){record.project.name=name;archiveProject(localStorage,record.project);}}renderProjectLibrary();}catch(error){projectError(error);}return;}
+ if(el.dataset.projectName){try{const name=el.value.trim()||'Mon application';if(el.dataset.projectName===project.id)commit(()=>project.name=name,{redraw:false});else{const record=listProjects(projectStorage).find(r=>r.project.id===el.dataset.projectName);if(record){record.project.name=name;archiveProject(projectStorage,record.project);}}renderProjectLibrary();}catch(error){projectError(error);}return;}
  if(el.id==='component-category'){componentCategory=el.value;renderLibrary();return;}
  if(el.tagName==='SELECT'&&el.dataset.themeProp){commit(()=>project.theme[el.dataset.themeProp]=el.value);return;}
  if(el.dataset.columnType!==undefined){const v=selected(),index=Number(el.dataset.columnType),previous=v?.fields?.[index]?.type;try{commit(()=>{changeListFieldType(v,index,el.value);connectListFields(project,v);});}catch(error){el.value=previous;$('#canvas-status').textContent=error.message;}return;}
@@ -755,13 +759,13 @@ document.addEventListener('click',event=>{
  if(b.dataset.openConnectionsFor){flowUI?.openFor(b.dataset.openConnectionsFor);return;}
  if(b.dataset.editData){selectedVariable=b.dataset.editData;selectedId=null;libraryTab='data';inspectorTab='props';renderAll();return;}
  if(b.hasAttribute('data-create-detail')){const n=selected();if(n?.type!=='products')return;if(n.events.item.some(a=>a.type!=='cartAdd')&&!confirm('Relier ce catalogue à une nouvelle fiche ? Ses actions actuelles sur les articles seront remplacées.'))return;try{commit(()=>{const result=createProductDetails(project,n.id);screenId=result.screen.id;selectedId=result.node.id;selectedVariable=null;eventName='item';inspectorTab='props';libraryTab='screens';mode='design';});}catch(error){$('#canvas-status').textContent=error.message;}return;}
- if(b.hasAttribute('data-download-library')){const status=projectLibraryStatus(localStorage);if(status.raw){download(status.raw,'application/json','bibliotheque-a-recuperer.json');libraryCopyDownloaded=true;}return;}
- if(b.hasAttribute('data-repair-library')){if(!confirm('Remplacer la bibliothèque illisible ? L’application ouverte sera conservée.'))return;try{repairProjectLibrary(localStorage,project,libraryCopyDownloaded);$('#projects-error').hidden=true;renderProjectLibrary();save();}catch(error){projectError(error);}return;}
- if(b.dataset.recoverCopy){const copy=listRecoveries(localStorage).find(c=>c.key===b.dataset.recoverCopy);if(copy)download(copy.raw,'application/json','copie-a-recuperer.json');return;}
+ if(b.hasAttribute('data-download-library')){const status=projectLibraryStatus(projectStorage);if(status.raw){download(status.raw,'application/json','bibliotheque-a-recuperer.json');libraryCopyDownloaded=true;}return;}
+ if(b.hasAttribute('data-repair-library')){if(!confirm('Remplacer la bibliothèque illisible ? L’application ouverte sera conservée.'))return;try{repairProjectLibrary(projectStorage,project,libraryCopyDownloaded);$('#projects-error').hidden=true;renderProjectLibrary();save();}catch(error){projectError(error);}return;}
+ if(b.dataset.recoverCopy){const copy=listRecoveries(projectStorage).find(c=>c.key===b.dataset.recoverCopy);if(copy)download(copy.raw,'application/json','copie-a-recuperer.json');return;}
  if(b.dataset.deleteRecovery){if(b.dataset.deleteRecovery.startsWith(recoveryPrefix)&&confirm('Supprimer cette copie de récupération ? Télécharge-la d’abord si tu veux la garder.')){localStorage.removeItem(b.dataset.deleteRecovery);renderProjectLibrary();}return;}
- if(b.dataset.projectOpen){const record=listProjects(localStorage).find(r=>r.project.id===b.dataset.projectOpen);if(record&&activateProject(record.project))$('#projects-dialog').close();return;}
- if(b.dataset.projectCopy){const source=b.dataset.projectCopy===project.id?project:listProjects(localStorage).find(r=>r.project.id===b.dataset.projectCopy)?.project;if(source){const copy=structuredClone(source);copy.id=uid('app');copy.name+=' copie';if(activateProject(copy))$('#projects-dialog').close();}return;}
- if(b.dataset.projectDelete){if(!confirm('Supprimer cette application de cet ordinateur ?'))return;try{removeProject(localStorage,b.dataset.projectDelete,project.id);renderProjectLibrary();}catch(error){projectError(error);}return;}
+ if(b.dataset.projectOpen){const record=listProjects(projectStorage).find(r=>r.project.id===b.dataset.projectOpen);if(record&&activateProject(record.project))$('#projects-dialog').close();return;}
+ if(b.dataset.projectCopy){const source=b.dataset.projectCopy===project.id?project:listProjects(projectStorage).find(r=>r.project.id===b.dataset.projectCopy)?.project;if(source){const copy=structuredClone(source);copy.id=uid('app');copy.name+=' copie';if(activateProject(copy))$('#projects-dialog').close();}return;}
+ if(b.dataset.projectDelete){if(!confirm('Supprimer cette application de cet ordinateur ?'))return;try{removeProject(projectStorage,b.dataset.projectDelete,project.id);renderProjectLibrary();}catch(error){projectError(error);}return;}
  if(b.hasAttribute('data-select-root')){selectedId=selectedVariable=null;inspectorTab='props';renderAll();return;}
  if(b.dataset.emptyList){commit(()=>safeSet(selected(),b.dataset.emptyList,[]));return;}
  if(b.dataset.toggleStudioTools!==undefined){
@@ -937,7 +941,7 @@ $('#recover-project').onclick=()=>{if(!recovery)return;download(recovery.raw,'ap
 $('#dismiss-recovery').onclick=()=>{if(!recovery?.blocked)hideRecoveryBanner();};
 if(recovery){$('#recovery-banner').hidden=false;document.body.classList.add('with-recovery');$('#dismiss-recovery').disabled=recovery.blocked;}
 $('#new-project').onclick=()=>{$('[data-template=quiz-tutorial]').hidden=studioLevel!=='4e';$('#new-project-error').hidden=true;$('#new-dialog').showModal();};
-$('#projects').onclick=()=>{$('#projects-error').hidden=true;try{archiveProject(localStorage,project);}catch(error){projectError(error);}renderProjectLibrary();$('#projects-dialog').showModal();};
+$('#projects').onclick=()=>{$('#projects-error').hidden=true;try{archiveProject(projectStorage,project);}catch(error){projectError(error);}renderProjectLibrary();$('#projects-dialog').showModal();};
 $('#projects-new').onclick=()=>{$('#projects-dialog').close();$('#new-project').click();};
 let previewPlayer;
 $('#preview-app').onclick=()=>{const root=document.createElement('main');root.className='app-player';previewPlayer?.destroy();$('#preview-host').replaceChildren(root);$('#preview-dialog').showModal();previewPlayer=createPlayer(root,project,{snapshot:previewSnapshot,quizRestart:true,onChange:detail=>{if(detail.snapshot?.projectId===project.id)previewSnapshot=detail.snapshot;saveWorkspace();}});saveWorkspace();};
@@ -975,7 +979,7 @@ $('#export-form').onsubmit=event=>{
  if(exportFormat==='json')download(JSON.stringify({...project,name},null,2),'application/json',projectSlug(name)+'.json');
  else exportApplication(name);
 };$('#import').onclick=()=>$('#import-file').click();
-$('#import-file').onchange=async event=>{const file=event.target.files[0];if(!file)return;try{if(file.size>30*1024*1024)throw Error('Ce fichier est trop volumineux.');const next=JSON.parse(await file.text());if(!validateProject(next))throw Error('Choisis un projet JSON de cet éditeur.');const imported=importedProjectCopy(localStorage,project,next);if(activateProject(imported,{undoable:true})&&imported.id!==next.id)$('#save-status').textContent='Projet importé comme nouvelle copie.';}catch(error){$('#save-status').textContent=error instanceof SyntaxError?'Ce fichier ne contient pas un projet JSON valide.':error.message;}finally{event.target.value='';}};
+$('#import-file').onchange=async event=>{const file=event.target.files[0];if(!file)return;try{const next=JSON.parse(await file.text());if(!validateProject(next))throw Error('Choisis un projet JSON de cet éditeur.');const imported=importedProjectCopy(projectStorage,project,next);if(activateProject(imported,{undoable:true})&&imported.id!==next.id)$('#save-status').textContent='Projet importé comme nouvelle copie.';}catch(error){$('#save-status').textContent=error instanceof SyntaxError?'Ce fichier ne contient pas un projet JSON valide.':error.message;}finally{event.target.value='';}};
 async function exportApplication(name){const button=$('#export-app');button.disabled=true;try{const output=structuredClone(project),images=new Map();output.name=name;const collect=obj=>{if(!obj||typeof obj!=='object')return;for(const value of Object.values(obj))if(typeof value==='string'&&/^assets\/[a-z0-9-]+\.(jpg|png|webp)$/i.test(value))images.set(value,null);else if(value&&typeof value==='object')collect(value);};collect(output);await Promise.all([...images.keys()].map(async url=>{const response=await fetch(url);if(!response.ok)throw Error('Image introuvable : '+url);const data=await new Promise((resolve,reject)=>{const r=new FileReader();r.onload=()=>resolve(r.result);r.onerror=reject;response.arrayBuffer().then(buffer=>r.readAsDataURL(new Blob([buffer],{type:url.endsWith('.png')?'image/png':url.endsWith('.webp')?'image/webp':'image/jpeg'}))).catch(reject);});images.set(url,data);}));const replace=obj=>{for(const [k,v]of Object.entries(obj))if(typeof v==='string'&&images.has(v))obj[k]=images.get(v);else if(v&&typeof v==='object')replace(v);};replace(output);const json=JSON.stringify(output).replace(/</g,'\\u003c').replace(/\u2028/g,'\\u2028').replace(/\u2029/g,'\\u2029');const html=`<!doctype html><html lang="fr"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta http-equiv="Content-Security-Policy" content="default-src 'none'; img-src data:; style-src 'unsafe-inline'; script-src 'unsafe-inline'; connect-src 'none'; base-uri 'none'"><title>${esc(output.name)}</title><style>${playerCSS}body{margin:0;background:#eee4f3;display:grid;place-items:center;min-height:100vh}.app-player{width:min(100vw,420px);height:100dvh;max-height:1000px;box-shadow:0 0 30px #29173f20}</style></head><body><main id="application" class="app-player"></main><script>const renderAppIcon=(${renderAppIcon.toString()});const createLocalCamera=(${createLocalCamera.toString()});const createAppTimers=(${createAppTimers.toString()});(${createPlayer.toString()})(document.querySelector('#application'),${json},{persist:true});</script></body></html>`;download(html,'text/html',projectSlug(output.name)+'.html');$('#save-status').textContent='Application HTML exportée, images incluses.';}catch(error){$('#save-status').textContent='Export : '+error.message;}finally{button.disabled=false;}};
 player=createPlayer($('#player'),project,{design:true,quizRestart:true,onSelect:selectNode,onChange:detail=>{lastState=detail;if(!sessionReady)return;if(mode==='test'&&detail.snapshot)testSnapshot=detail.snapshot;
  if(mode==='test'){recordQuizTest(detail);recordOrderTest(detail);}if(mode==='test'&&detail.screen){const changed=screenId!==detail.screen;screenId=detail.screen;if(changed){selectedId=selectedVariable=null;renderScreensPicker();renderLibrary();renderInspector();}$('#screen-picker').value=screenId;$('#canvas-status').textContent='Test · '+currentScreen().name;}saveWorkspace();}});
@@ -1050,7 +1054,7 @@ for(const button of levelDialog.querySelectorAll('[data-studio-level]'))button.o
 };
 if(studioLevel){$('#studio-settings').textContent='⚙ Réglages · '+studioLevel;startWorkspace();}
 else openLevelSettings();
-window.addEventListener('pagehide',()=>{saveWorkspace();if(!recovery?.blocked)try{localStorage.setItem(storageKey,JSON.stringify(project));archiveProject(localStorage,project);}catch{}});
+window.addEventListener('pagehide',()=>{saveWorkspace();if(!recovery?.blocked)try{projectStorage.setItem(storageKey,JSON.stringify(project));archiveProject(projectStorage,project);}catch{}});
 document.addEventListener('visibilitychange',()=>{if(document.hidden)saveWorkspace();});
 document.addEventListener('scroll',event=>{if(['library-content','inspector-content'].includes(event.target.id)||event.target.closest?.('#player')){clearTimeout(sessionScrollTimer);sessionScrollTimer=setTimeout(saveWorkspace,150);}},true);
 if(loadMessage)$('#save-status').textContent=loadMessage;

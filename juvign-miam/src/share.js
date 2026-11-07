@@ -15,10 +15,32 @@ async function shareRequest(url,options){
 }
 
 export async function publishProject(project){
- const body=JSON.stringify(project);
- if(new Blob([body]).size>8*1024*1024)throw Error('Le projet dépasse 8 Mo. Réduis la taille des images ou exporte en HTML.');
- const url=new URL(shareEndpoint);url.searchParams.set('name',projectSlug(project.name));
- const {id}=await shareRequest(url,{method:'POST',headers:{'Content-Type':'application/json'},body});
+ const body=JSON.stringify(project),blob=new Blob([body]);
+ const slug=projectSlug(project.name);
+ const request=(parameters,payload,type)=>{
+  const url=new URL(shareEndpoint);
+  url.search=new URLSearchParams({name:slug,...parameters});
+  return shareRequest(url,{method:'POST',headers:{'Content-Type':type},body:payload});
+ };
+ let id;
+ if(blob.size<=1024*1024){
+  ({id}=await request({},body,'application/json'));
+ }else{
+  const send=(parameters,payload)=>request(parameters,payload,'application/octet-stream');
+  const {token}=await send({upload:'start'});
+  if(!validShareId(token))throw Error('Le service a renvoyé un transfert invalide.');
+  try{
+   for(let offset=0;offset<blob.size;offset+=1024*1024){
+    const chunk=blob.slice(offset,offset+1024*1024);
+    const result=await send({upload:'chunk',token,offset},chunk);
+    if(result.offset!==offset+chunk.size)throw Error('Transfert incomplet. Relance le partage.');
+   }
+   ({id}=await send({upload:'finish',token,offset:blob.size}));
+  }catch(error){
+   send({upload:'cancel',token}).catch(()=>{});
+   throw error;
+  }
+ }
  if(!validShareId(id))throw Error('Le service a renvoyé un identifiant invalide.');
  return new URL('/3e-chams/'+id,shareEndpoint).href;
 }
