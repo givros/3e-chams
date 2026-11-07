@@ -108,3 +108,4 @@ header{gap:10px;padding-inline:16px}#project-name{width:135px;flex-shrink:1}#sav
 .quiz-model-target{outline:2px solid #6339c7;outline-offset:-2px}
 .quiz-guided #player .rt-drag-handle{opacity:.35;cursor:default}
 #quiz-build-guide .quiz-wizard-footer{flex-wrap:wrap}
+#share-form .solid-button,#export-form .solid-button{margin-top:10px}#export-dialog{max-width:480px}

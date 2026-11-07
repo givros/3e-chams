@@ -1,0 +1,2 @@
+RewriteEngine On
+RewriteRule ^([a-z0-9]+(-[a-z0-9]+)*)/?$ /juvign-share.php?open=$1 [L]

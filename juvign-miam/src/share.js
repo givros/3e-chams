@@ -1,3 +1,34 @@
+const shareEndpoint='https://givros-studio.fr/juvign-share.php';
+const validShareId=id=>typeof id==='string'&&id.length<=72&&/^[a-z0-9]+(?:-[a-z0-9]+)*$/.test(id);
+export function projectSlug(name){
+ return name.normalize('NFD').replace(/[̀-ͯ]/g,'').toLowerCase()
+  .replace(/[^a-z0-9]+/g,'-').replace(/^-+|-+$/g,'').slice(0,60).replace(/-$/,'')||'mon-application';
+}
+
+async function shareRequest(url,options){
+ let response;
+ try{response=await fetch(url,{...options,signal:AbortSignal.timeout(30000)});}
+ catch{throw Error('Le service de partage est inaccessible. Réessaie ou exporte ton application en HTML.');}
+ const data=await response.json().catch(()=>null);
+ if(!response.ok||!data)throw Error(data?.error||'Le service de partage est indisponible.');
+ return data;
+}
+
+export async function publishProject(project){
+ const body=JSON.stringify(project);
+ if(new Blob([body]).size>8*1024*1024)throw Error('Le projet dépasse 8 Mo. Réduis la taille des images ou exporte en HTML.');
+ const url=new URL(shareEndpoint);url.searchParams.set('name',projectSlug(project.name));
+ const {id}=await shareRequest(url,{method:'POST',headers:{'Content-Type':'application/json'},body});
+ if(!validShareId(id))throw Error('Le service a renvoyé un identifiant invalide.');
+ return new URL('/3e-chams/'+id,shareEndpoint).href;
+}
+
+export async function loadSharedProject(id){
+ if(!validShareId(id))throw Error('Identifiant de partage invalide.');
+ const url=new URL(shareEndpoint);url.searchParams.set('id',id);
+ return shareRequest(url);
+}
+
 export async function encodeProject(project){
  if(typeof CompressionStream!=='function')throw Error('Le partage nécessite un navigateur récent. Tu peux toujours exporter ton application en HTML.');
  const stream=new Blob([JSON.stringify(project)]).stream().pipeThrough(new CompressionStream('deflate'));

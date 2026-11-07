@@ -11,7 +11,7 @@ import {iconChoices,renderAppIcon} from './studio-icons.js';
 import {catalog,actionTypes,uid,blankProject,component,variable,walk,findNode,duplicateNode,duplicateScreen,operand,action,restaurantTemplate,tasksTemplate,validateProject} from './studio-model.js';
 import {createPlayer,playerCSS} from './studio-player.js';
 import {screenTemplates,addScreenTemplate,mobileAppTemplate} from './screen-templates.js';
-import {encodeProject} from './share.js';
+import {publishProject,projectSlug} from './share.js';
 import {projectIssues} from './studio-diagnostics.js';
 import {columnLayout,moveNode,containerTargets,decorativeLayout,insertNodeAt} from './studio-layout.js';
 import {navigationSettings,setNavigation,cleanNavigation,moveNavigationItem} from './studio-navigation.js';
@@ -964,23 +964,46 @@ function showState(title,data){
 }
 $('#test-state').onclick=()=>showState('Données pendant le test',lastState);$('#issues-button').onclick=()=>showState('Liaisons à vérifier',issues());
 function download(content,type,name){const url=URL.createObjectURL(new Blob([content],{type})),a=document.createElement('a');a.href=url;a.download=name;a.click();setTimeout(()=>URL.revokeObjectURL(url),1000);}
-$('#backup').onclick=()=>download(JSON.stringify(project,null,2),'application/json',(project.name||'project')+'.json');$('#import').onclick=()=>$('#import-file').click();
+let exportFormat;
+function openExport(format){exportFormat=format;$('#export-name').value=project.name||'Mon application';$('#export-dialog').showModal();}
+$('#backup').onclick=()=>openExport('json');
+$('#export-app').onclick=()=>openExport('html');
+$('#export-form').onsubmit=event=>{
+ event.preventDefault();
+ const name=$('#export-name').value.trim();if(!name)return;
+ $('#export-dialog').close();
+ if(exportFormat==='json')download(JSON.stringify({...project,name},null,2),'application/json',projectSlug(name)+'.json');
+ else exportApplication(name);
+};$('#import').onclick=()=>$('#import-file').click();
 $('#import-file').onchange=async event=>{const file=event.target.files[0];if(!file)return;try{if(file.size>30*1024*1024)throw Error('Ce fichier est trop volumineux.');const next=JSON.parse(await file.text());if(!validateProject(next))throw Error('Choisis un projet JSON de cet éditeur.');const imported=importedProjectCopy(localStorage,project,next);if(activateProject(imported,{undoable:true})&&imported.id!==next.id)$('#save-status').textContent='Projet importé comme nouvelle copie.';}catch(error){$('#save-status').textContent=error instanceof SyntaxError?'Ce fichier ne contient pas un projet JSON valide.':error.message;}finally{event.target.value='';}};
-$('#export-app').onclick=async()=>{const button=$('#export-app');button.disabled=true;try{const output=structuredClone(project),images=new Map();const collect=obj=>{if(!obj||typeof obj!=='object')return;for(const value of Object.values(obj))if(typeof value==='string'&&/^assets\/[a-z0-9-]+\.(jpg|png|webp)$/i.test(value))images.set(value,null);else if(value&&typeof value==='object')collect(value);};collect(output);await Promise.all([...images.keys()].map(async url=>{const response=await fetch(url);if(!response.ok)throw Error('Image introuvable : '+url);const data=await new Promise((resolve,reject)=>{const r=new FileReader();r.onload=()=>resolve(r.result);r.onerror=reject;response.arrayBuffer().then(buffer=>r.readAsDataURL(new Blob([buffer],{type:url.endsWith('.png')?'image/png':url.endsWith('.webp')?'image/webp':'image/jpeg'}))).catch(reject);});images.set(url,data);}));const replace=obj=>{for(const [k,v]of Object.entries(obj))if(typeof v==='string'&&images.has(v))obj[k]=images.get(v);else if(v&&typeof v==='object')replace(v);};replace(output);const json=JSON.stringify(output).replace(/</g,'\\u003c').replace(/\u2028/g,'\\u2028').replace(/\u2029/g,'\\u2029');const html=`<!doctype html><html lang="fr"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta http-equiv="Content-Security-Policy" content="default-src 'none'; img-src data:; style-src 'unsafe-inline'; script-src 'unsafe-inline'; connect-src 'none'; base-uri 'none'"><title>${esc(output.name)}</title><style>${playerCSS}body{margin:0;background:#eee4f3;display:grid;place-items:center;min-height:100vh}.app-player{width:min(100vw,420px);height:100dvh;max-height:1000px;box-shadow:0 0 30px #29173f20}</style></head><body><main id="application" class="app-player"></main><script>const renderAppIcon=(${renderAppIcon.toString()});const createLocalCamera=(${createLocalCamera.toString()});const createAppTimers=(${createAppTimers.toString()});(${createPlayer.toString()})(document.querySelector('#application'),${json},{persist:true});</script></body></html>`;download(html,'text/html',(project.name.normalize('NFD').replace(/[\u0300-\u036f]/g,'').replace(/[^a-zA-Z0-9]+/g,'-')||'application')+'.html');$('#save-status').textContent='Application HTML exportée, images incluses.';}catch(error){$('#save-status').textContent='Export : '+error.message;}finally{button.disabled=false;}};
+async function exportApplication(name){const button=$('#export-app');button.disabled=true;try{const output=structuredClone(project),images=new Map();output.name=name;const collect=obj=>{if(!obj||typeof obj!=='object')return;for(const value of Object.values(obj))if(typeof value==='string'&&/^assets\/[a-z0-9-]+\.(jpg|png|webp)$/i.test(value))images.set(value,null);else if(value&&typeof value==='object')collect(value);};collect(output);await Promise.all([...images.keys()].map(async url=>{const response=await fetch(url);if(!response.ok)throw Error('Image introuvable : '+url);const data=await new Promise((resolve,reject)=>{const r=new FileReader();r.onload=()=>resolve(r.result);r.onerror=reject;response.arrayBuffer().then(buffer=>r.readAsDataURL(new Blob([buffer],{type:url.endsWith('.png')?'image/png':url.endsWith('.webp')?'image/webp':'image/jpeg'}))).catch(reject);});images.set(url,data);}));const replace=obj=>{for(const [k,v]of Object.entries(obj))if(typeof v==='string'&&images.has(v))obj[k]=images.get(v);else if(v&&typeof v==='object')replace(v);};replace(output);const json=JSON.stringify(output).replace(/</g,'\\u003c').replace(/\u2028/g,'\\u2028').replace(/\u2029/g,'\\u2029');const html=`<!doctype html><html lang="fr"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta http-equiv="Content-Security-Policy" content="default-src 'none'; img-src data:; style-src 'unsafe-inline'; script-src 'unsafe-inline'; connect-src 'none'; base-uri 'none'"><title>${esc(output.name)}</title><style>${playerCSS}body{margin:0;background:#eee4f3;display:grid;place-items:center;min-height:100vh}.app-player{width:min(100vw,420px);height:100dvh;max-height:1000px;box-shadow:0 0 30px #29173f20}</style></head><body><main id="application" class="app-player"></main><script>const renderAppIcon=(${renderAppIcon.toString()});const createLocalCamera=(${createLocalCamera.toString()});const createAppTimers=(${createAppTimers.toString()});(${createPlayer.toString()})(document.querySelector('#application'),${json},{persist:true});</script></body></html>`;download(html,'text/html',projectSlug(output.name)+'.html');$('#save-status').textContent='Application HTML exportée, images incluses.';}catch(error){$('#save-status').textContent='Export : '+error.message;}finally{button.disabled=false;}};
 player=createPlayer($('#player'),project,{design:true,quizRestart:true,onSelect:selectNode,onChange:detail=>{lastState=detail;if(!sessionReady)return;if(mode==='test'&&detail.snapshot)testSnapshot=detail.snapshot;
  if(mode==='test'){recordQuizTest(detail);recordOrderTest(detail);}if(mode==='test'&&detail.screen){const changed=screenId!==detail.screen;screenId=detail.screen;if(changed){selectedId=selectedVariable=null;renderScreensPicker();renderLibrary();renderInspector();}$('#screen-picker').value=screenId;$('#canvas-status').textContent='Test · '+currentScreen().name;}saveWorkspace();}});
-$('#share-app').onclick=async()=>{
- $('#share-dialog').showModal();$('#share-status').textContent='Création du lien…';$('#share-qr').replaceChildren();$('#copy-share').disabled=true;$('#open-share').hidden=true;$('#share-link').value='';
+let shareGeneration=0;
+function clearShare(){
+ $('#share-status').textContent='';$('#share-qr').replaceChildren();$('#copy-share').disabled=true;
+ $('#open-share').hidden=true;$('#share-link').value='';
+}
+$('#share-app').onclick=()=>{
+ shareGeneration++;clearShare();$('#generate-share').disabled=false;$('#share-name').disabled=false;
+ $('#share-name').value=project.name||'Mon application';$('#share-dialog').showModal();
+};
+$('#share-name').oninput=clearShare;
+$('#share-form').onsubmit=async event=>{
+ event.preventDefault();
+ const name=$('#share-name').value.trim();if(!name)return;
+ clearShare();
+ const generation=++shareGeneration,button=$('#generate-share');button.disabled=true;$('#share-name').disabled=true;
+ $('#share-status').textContent='Création du lien…';
  try{
-  const local=['localhost','127.0.0.1','[::1]'].includes(location.hostname);
-  const base=local?'https://givros.github.io/3e-chams/':new URL('./',location.href).href;
-  const url=new URL('view.html',base);url.hash=await encodeProject(project);
-  if(url.href.length>60000)throw Error('Les images importées rendent le lien trop long. Réduis leur taille ou utilise l’export HTML.');
-  $('#share-link').value=url.href;$('#copy-share').disabled=false;$('#open-share').href=url.href;$('#open-share').hidden=false;
-  let qrReady=false;
-  try{const qr=window.qrcode(0,'L');qr.addData(url.href);qr.make();$('#share-qr').innerHTML=qr.createSvgTag({cellSize:4,margin:16,scalable:true});qrReady=true;}catch{}
-  $('#share-status').textContent=(qrReady?'Scanne le QR code avec ton téléphone.':'Lien créé. Trop de contenu pour un QR code : copie le lien.')+(local?' La page GitHub doit avoir reçu cette mise à jour avant de pouvoir ouvrir le lien.':'');
- }catch(error){$('#share-status').textContent=error.message;}
+  const url=await publishProject({...project,name});
+  if(generation!==shareGeneration)return;
+  const qr=window.qrcode(0,'M');qr.addData(url);qr.make();
+  $('#share-qr').innerHTML=qr.createSvgTag({cellSize:4,margin:16,scalable:true});
+  $('#share-link').value=url;$('#copy-share').disabled=false;$('#open-share').href=url;$('#open-share').hidden=false;
+  $('#share-status').textContent='Scanne le QR code ou copie le lien.';
+ }catch(error){if(generation===shareGeneration)$('#share-status').textContent=error.message;}
+ finally{if(generation===shareGeneration){button.disabled=false;$('#share-name').disabled=false;}}
 };
 $('#copy-share').onclick=async()=>{try{await navigator.clipboard.writeText($('#share-link').value);$('#share-status').textContent='Lien copié.';}catch{$('#share-link').select();$('#share-status').textContent='Sélectionne puis copie le lien.';}};
 flowUI=installFlowUI({getProject:()=>project,commit,initialState:loadedSession?.flow||{},onSessionChange:saveWorkspace,finishStarter:()=>{project.starter.complete=true;save();renderAll();},openActions:(id,event)=>{selectNode(id);eventName=event||'click';inspectorTab='actions';renderInspector();},openScreen:id=>{screenId=id;selectedId=selectedVariable=null;mode='design';renderAll();}});
