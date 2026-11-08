@@ -56,3 +56,19 @@ test('large projects publish in chunks without a total upload cutoff',async()=>{
  try{assert.equal(await publishProject(project),'https://givros-studio.fr/3e-chams/grand-projet');}
  finally{globalThis.fetch=original;}
 });
+
+test('an oversized snapshot is refused before a network request is made',async()=>{
+ const {publishProject,PROJECT_SIZE_LIMIT}=await import('../src/share.js');
+ const project=blankProject();
+ project.screens[0].notes='a'.repeat(PROJECT_SIZE_LIMIT);
+ await assert.rejects(publishProject(project),/16 Mio/);
+});
+
+test('imports reject script markup in tutorial metadata and prototype keys',()=>{
+ const project=blankProject();
+ project.orderTutorial={level:'<img src=x onerror=alert(1)>',step:'catalog'};
+ assert.equal(validateProject(project),false);
+ delete project.orderTutorial;
+ Object.defineProperty(project.screens[0],'__proto__',{value:{polluted:true},enumerable:true});
+ assert.equal(validateProject(project),false);
+});

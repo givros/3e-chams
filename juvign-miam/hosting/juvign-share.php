@@ -2,6 +2,7 @@
 declare(strict_types=1);
 
 const MAX_REQUEST = 8 * 1024 * 1024;
+const MAX_PROJECT = 16 * 1024 * 1024;
 
 function respond(int $status, array $data): never {
     http_response_code($status);
@@ -19,7 +20,7 @@ $allowed = in_array($origin, ['https://givros.github.io', 'https://givros-studio
 if ($allowed) {
     header('Access-Control-Allow-Origin: ' . $origin);
     header('Access-Control-Allow-Methods: GET, POST, OPTIONS');
-    header('Access-Control-Allow-Headers: Content-Type');
+    header('Access-Control-Allow-Headers: Content-Type, X-Publication-Code');
 }
 
 $method = $_SERVER['REQUEST_METHOD'];
@@ -30,6 +31,34 @@ if ($method === 'OPTIONS' && $allowed) {
 $directory = dirname(__DIR__) . '/.juvign-shares';
 function validSlug($slug): bool {
     return is_string($slug) && preg_match('/^[a-z0-9]+(?:-[a-z0-9]+)*$/D', $slug) && strlen($slug) <= 72;
+}
+
+function safeKeys($value, int &$count): bool {
+    if (++$count > 200000) {
+        return false;
+    }
+    foreach (is_array($value) || is_object($value) ? $value : [] as $key => $child) {
+        if (in_array($key, ['__proto__', 'constructor', 'prototype'], true) || !safeKeys($child, $count)) {
+            return false;
+        }
+    }
+    return true;
+}
+
+function validateSnapshot(string $body): void {
+    try {
+        $project = json_decode($body, false, 64, JSON_THROW_ON_ERROR);
+    } catch (JsonException $error) {
+        respond(400, ['error' => 'Le projet est illisible.']);
+    }
+    $count = 0;
+    if (!is_object($project) || ($project->version ?? null) !== 3 || !is_string($project->name ?? null)
+        || !is_string($project->id ?? null) || !preg_match('/^[a-zA-Z0-9_-]+$/D', $project->id)
+        || !is_string($project->home ?? null) || !is_object($project->theme ?? null)
+        || !is_array($project->screens ?? null) || !$project->screens
+        || !is_array($project->variables ?? null) || !safeKeys($project, $count)) {
+        respond(400, ['error' => 'Projet de studio invalide.']);
+    }
 }
 
 if ($method === 'GET' && isset($_GET['library'])) {
@@ -75,6 +104,15 @@ if ($method === 'GET') {
 
 if ($method !== 'POST' || !$allowed) {
     respond(403, ['error' => 'Publication non autorisée depuis cette adresse.']);
+}
+
+$configuredHash = @file_get_contents(dirname(__DIR__) . '/.juvign-publication-hash');
+if ($configuredHash === false || !preg_match('/^[a-f0-9]{64}$/D', trim($configuredHash))) {
+    respond(503, ['error' => 'La publication est momentanément indisponible.']);
+}
+$code = $_SERVER['HTTP_X_PUBLICATION_CODE'] ?? '';
+if (strlen($code) > 128 || !hash_equals(trim($configuredHash), hash('sha256', $code))) {
+    respond(401, ['error' => 'Code de publication incorrect. Demande le code à ton enseignant.']);
 }
 
 $slug = $_GET['name'] ?? '';
@@ -140,24 +178,28 @@ if ($operation !== '') {
     }
     if ($operation === 'chunk') {
         $body = readRequest();
+        if ($offset + strlen($body) > MAX_PROJECT) {
+            @unlink($temp);
+            respond(413, ['error' => 'Le projet dépasse la limite de partage de 16 Mio.']);
+        }
         storeFragment($temp, $body, $offset);
         respond(200, ['offset' => $offset + strlen($body)]);
     }
     if ($operation !== 'finish' || $offset === 0) {
         respond(400, ['error' => 'Transfert invalide.']);
     }
+    if ($offset > MAX_PROJECT) {
+        @unlink($temp);
+        respond(413, ['error' => 'Le projet dépasse la limite de partage de 16 Mio.']);
+    }
+    $body = file_get_contents($temp);
+    if ($body === false) {
+        respond(503, ['error' => 'Impossible de lire le transfert.']);
+    }
+    validateSnapshot($body);
 } else {
     $body = readRequest();
-    try {
-        $project = json_decode($body, true, 64, JSON_THROW_ON_ERROR);
-    } catch (JsonException $error) {
-        respond(400, ['error' => 'Le projet est illisible.']);
-    }
-    if (($project['version'] ?? null) !== 3 || !is_string($project['name'] ?? null)
-        || !is_array($project['screens'] ?? null) || !$project['screens']
-        || !is_array($project['variables'] ?? null)) {
-        respond(400, ['error' => 'Projet de studio invalide.']);
-    }
+    validateSnapshot($body);
     $temp = $directory . '/upload-' . bin2hex(random_bytes(16)) . '.tmp';
     storeFragment($temp, $body, 0);
 }

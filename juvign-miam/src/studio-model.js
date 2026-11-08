@@ -102,6 +102,12 @@ export function validateProject(p){
  if(!safeJSON(p))return false;
  if(!object(p)||p.version!==3||!identifier(p.id)||typeof p.name!=='string'||!object(p.theme)||!Array.isArray(p.screens)||!p.screens.length||!Array.isArray(p.variables))return false;
  if(!['primary','background','text'].every(k=>color(p.theme[k]))||!Number.isFinite(p.theme.radius))return false;
+ if(p.orderTutorial!==undefined){
+  const guide=p.orderTutorial;
+  if(!object(guide)||!['4e','3e'].includes(guide.level)||!['catalog','menu','basket','receipt','links','test'].includes(guide.step))return false;
+  if(['catalog','basket','receipt'].some(key=>guide[key]!==undefined&&guide[key]!==''&&!identifier(guide[key])))return false;
+  if(guide.shop!==undefined&&typeof guide.shop!=='string')return false;
+ }
  if(p.theme.darkVariable!==undefined&&p.theme.darkVariable!==''&&!dataName(p.theme.darkVariable))return false;
  if(p.navigation!==undefined){const nav=p.navigation;if(!object(nav)||typeof nav.enabled!=='boolean'||!['tabs','drawer','both'].includes(nav.style)||!Array.isArray(nav.items)||!nav.items.every(identifier)||new Set(nav.items).size!==nav.items.length||['showHeader','showBack'].some(k=>nav[k]!==undefined&&typeof nav[k]!=='boolean')||(nav.headerIcon!==undefined&&!['none','menu','profile','settings'].includes(nav.headerIcon))||['profileScreen','settingsScreen'].some(k=>nav[k]!==undefined&&nav[k]!==''&&!identifier(nav[k])))return false;}
  const ids=new Set(),names=new Set();

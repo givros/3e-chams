@@ -1,3 +1,4 @@
+export const PROJECT_SIZE_LIMIT=16*1024*1024;
 const shareEndpoint='https://givros-studio.fr/juvign-share.php';
 const validShareId=id=>typeof id==='string'&&id.length<=72&&/^[a-z0-9]+(?:-[a-z0-9]+)*$/.test(id);
 export function projectSlug(name){
@@ -14,13 +15,14 @@ async function shareRequest(url,options){
  return data;
 }
 
-export async function publishProject(project){
+export async function publishProject(project,publicationCode){
  const body=JSON.stringify(project),blob=new Blob([body]);
+ if(blob.size>PROJECT_SIZE_LIMIT)throw Error('Le projet dépasse 16 Mio. Retire quelques images avant de partager.');
  const slug=projectSlug(project.name);
  const request=(parameters,payload,type)=>{
   const url=new URL(shareEndpoint);
   url.search=new URLSearchParams({name:slug,...parameters});
-  return shareRequest(url,{method:'POST',headers:{'Content-Type':type},body:payload});
+  return shareRequest(url,{method:'POST',headers:{'Content-Type':type,'X-Publication-Code':publicationCode||''},body:payload});
  };
  let id;
  if(blob.size<=1024*1024){
