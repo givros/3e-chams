@@ -17,7 +17,7 @@ import {projectIssues} from './studio-diagnostics.js';
 import {columnLayout,moveNode,containerTargets,decorativeLayout,insertNodeAt} from './studio-layout.js';
 import {navigationSettings,setNavigation,cleanNavigation,moveNavigationItem} from './studio-navigation.js';
 import {componentCategories,libraryEntries,normalizeSearch} from './studio-library.js';
-import {activeProjectKey,listProjects,archiveProject,switchProject,removeProject,loadActiveProject,listRecoveries,recoveryPrefix,importedProjectCopy,projectLibraryStatus,repairProjectLibrary} from './studio-projects.js';
+import {activeProjectKey,listProjects,archiveProject,switchProject,loadActiveProject,importedProjectCopy} from './studio-projects.js';
 import {themePresets,appFonts,applyThemePreset,setAppBackground,readableText} from './studio-theme.js';
 import {createProductDetails} from './studio-detail.js';
 import {describeTestState} from './studio-inspection.js';
@@ -27,7 +27,7 @@ import {expectedValueType,conditionValueType,normalizeActionInputs} from './stud
 const $=s=>document.querySelector(s),esc=v=>String(v??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 let photoCategory='all',photoQuery='';
 const typeLabels={text:'Texte',number:'Nombre',boolean:'Oui / non',list:'Liste',computed:'Calcul'};
-const storageKey=activeProjectKey;let project=blankProject(),loadMessage='',componentQuery='',componentCategory='all',modelQuery='',librarySaveTimer,imageJob=0,libraryCopyDownloaded=false;
+const storageKey=activeProjectKey;let project=blankProject(),loadMessage='',componentQuery='',componentCategory='all',modelQuery='',librarySaveTimer,imageJob=0;
 const projectStorage=await openProjectStorage(localStorage,()=>{
  $('#save-status').textContent='Enregistrement impossible. Télécharge le projet JSON pour conserver tes modifications.';
 });
@@ -80,11 +80,10 @@ function renderProjectLibrary(){
  let records=listProjects(projectStorage);if(!records.some(r=>r.project.id===project.id))records.unshift({project,updatedAt:new Date().toISOString()});
  const query=normalizeSearch($('#project-library-search').value);
  records=records.filter(r=>!query||normalizeSearch(r.project.name).includes(query)).sort((a,b)=>(b.project.id===project.id)-(a.project.id===project.id)||b.updatedAt.localeCompare(a.updatedAt));
- $('#project-list').innerHTML=records.length?records.map(r=>{const p=r.project,active=p.id===project.id;return `<div class="project-row"><div><input data-project-name="${p.id}" aria-label="Nom de l’application ${esc(p.name)}" value="${esc(active?project.name:p.name)}"><small>${p.screens.length} écran${p.screens.length>1?'s':''} · ${new Date(r.updatedAt).toLocaleString('fr-FR',{timeZone:'Europe/Paris',day:'numeric',month:'short',hour:'2-digit',minute:'2-digit'})}</small></div><button class="project-open" data-project-open="${p.id}" ${active?'disabled':''}>${active?'Ouverte':'Ouvrir'}</button><button data-project-copy="${p.id}">Dupliquer</button><button class="danger" data-project-delete="${p.id}" ${active?'disabled':''}>Supprimer</button></div>`;}).join(''):'<p class="help">Aucune application trouvée.</p>';
- const copies=listRecoveries(projectStorage);if(copies.length)$('#project-list').insertAdjacentHTML('beforeend',`<details class="advanced"><summary>Copies à récupérer (${copies.length})</summary>${copies.map(copy=>`<div class="project-recovery-row"><span>${esc(copy.name)}</span><button data-recover-copy="${esc(copy.key)}">Télécharger</button><button class="danger" data-delete-recovery="${esc(copy.key)}">Supprimer</button></div>`).join('')}</details>`);
-
- const status=projectLibraryStatus(projectStorage);if(!status.readable&&status.raw)$('#project-list').insertAdjacentHTML('beforeend','<section class="project-error"><p>La bibliothèque est illisible. L’application ouverte reste utilisable.</p><button data-download-library>Récupérer une copie</button><button data-repair-library>Recréer la bibliothèque</button></section>');
-
+ $('#project-list').innerHTML=records.length?records.map(({project:p})=>{
+  const name=p.id===project.id?project.name:p.name;
+  return `<a class="project-launch" href="view.html?local=${encodeURIComponent(p.id)}" target="_blank" rel="noopener"><strong>${esc(name)}</strong><span aria-hidden="true">↗</span></a>`;
+ }).join(''):'<p class="help">Aucune application trouvée.</p>';
 }
 function editorSnapshot(){return {project:JSON.stringify(project),screenId,selectedId,selectedVariable,inspectorTab,eventName,libraryTab};}
 function restoreEditor(snapshot){const completedId=project.starter?.complete?project.id:null;project=JSON.parse(snapshot.project);if(project.id===completedId&&project.starter)project.starter.complete=true;screenId=project.screens.some(s=>s.id===snapshot.screenId)?snapshot.screenId:project.home;selectedId=findNode(project,snapshot.selectedId)?snapshot.selectedId:null;selectedVariable=project.variables.some(v=>v.name===snapshot.selectedVariable)?snapshot.selectedVariable:null;inspectorTab=snapshot.inspectorTab;eventName=snapshot.eventName;libraryTab=snapshot.libraryTab;save();renderAll();}
@@ -662,7 +661,6 @@ document.addEventListener('change',event=>{
  }
  if(event.target.hasAttribute('data-photo-category')){photoCategory=event.target.value;syncPhotoFilters();return;}
  const el=event.target;
- if(el.dataset.projectName){try{const name=el.value.trim()||'Mon application';if(el.dataset.projectName===project.id)commit(()=>project.name=name,{redraw:false});else{const record=listProjects(projectStorage).find(r=>r.project.id===el.dataset.projectName);if(record){record.project.name=name;archiveProject(projectStorage,record.project);}}renderProjectLibrary();}catch(error){projectError(error);}return;}
  if(el.id==='component-category'){componentCategory=el.value;renderLibrary();return;}
  if(el.tagName==='SELECT'&&el.dataset.themeProp){commit(()=>project.theme[el.dataset.themeProp]=el.value);return;}
  if(el.dataset.columnType!==undefined){const v=selected(),index=Number(el.dataset.columnType),previous=v?.fields?.[index]?.type;try{commit(()=>{changeListFieldType(v,index,el.value);connectListFields(project,v);});}catch(error){el.value=previous;$('#canvas-status').textContent=error.message;}return;}
@@ -759,13 +757,6 @@ document.addEventListener('click',event=>{
  if(b.dataset.openConnectionsFor){flowUI?.openFor(b.dataset.openConnectionsFor);return;}
  if(b.dataset.editData){selectedVariable=b.dataset.editData;selectedId=null;libraryTab='data';inspectorTab='props';renderAll();return;}
  if(b.hasAttribute('data-create-detail')){const n=selected();if(n?.type!=='products')return;if(n.events.item.some(a=>a.type!=='cartAdd')&&!confirm('Relier ce catalogue à une nouvelle fiche ? Ses actions actuelles sur les articles seront remplacées.'))return;try{commit(()=>{const result=createProductDetails(project,n.id);screenId=result.screen.id;selectedId=result.node.id;selectedVariable=null;eventName='item';inspectorTab='props';libraryTab='screens';mode='design';});}catch(error){$('#canvas-status').textContent=error.message;}return;}
- if(b.hasAttribute('data-download-library')){const status=projectLibraryStatus(projectStorage);if(status.raw){download(status.raw,'application/json','bibliotheque-a-recuperer.json');libraryCopyDownloaded=true;}return;}
- if(b.hasAttribute('data-repair-library')){if(!confirm('Remplacer la bibliothèque illisible ? L’application ouverte sera conservée.'))return;try{repairProjectLibrary(projectStorage,project,libraryCopyDownloaded);$('#projects-error').hidden=true;renderProjectLibrary();save();}catch(error){projectError(error);}return;}
- if(b.dataset.recoverCopy){const copy=listRecoveries(projectStorage).find(c=>c.key===b.dataset.recoverCopy);if(copy)download(copy.raw,'application/json','copie-a-recuperer.json');return;}
- if(b.dataset.deleteRecovery){if(b.dataset.deleteRecovery.startsWith(recoveryPrefix)&&confirm('Supprimer cette copie de récupération ? Télécharge-la d’abord si tu veux la garder.')){localStorage.removeItem(b.dataset.deleteRecovery);renderProjectLibrary();}return;}
- if(b.dataset.projectOpen){const record=listProjects(projectStorage).find(r=>r.project.id===b.dataset.projectOpen);if(record&&activateProject(record.project))$('#projects-dialog').close();return;}
- if(b.dataset.projectCopy){const source=b.dataset.projectCopy===project.id?project:listProjects(projectStorage).find(r=>r.project.id===b.dataset.projectCopy)?.project;if(source){const copy=structuredClone(source);copy.id=uid('app');copy.name+=' copie';if(activateProject(copy))$('#projects-dialog').close();}return;}
- if(b.dataset.projectDelete){if(!confirm('Supprimer cette application de cet ordinateur ?'))return;try{removeProject(projectStorage,b.dataset.projectDelete,project.id);renderProjectLibrary();}catch(error){projectError(error);}return;}
  if(b.hasAttribute('data-select-root')){selectedId=selectedVariable=null;inspectorTab='props';renderAll();return;}
  if(b.dataset.emptyList){commit(()=>safeSet(selected(),b.dataset.emptyList,[]));return;}
  if(b.dataset.toggleStudioTools!==undefined){
@@ -942,7 +933,6 @@ $('#dismiss-recovery').onclick=()=>{if(!recovery?.blocked)hideRecoveryBanner();}
 if(recovery){$('#recovery-banner').hidden=false;document.body.classList.add('with-recovery');$('#dismiss-recovery').disabled=recovery.blocked;}
 $('#new-project').onclick=()=>{$('[data-template=quiz-tutorial]').hidden=studioLevel!=='4e';$('#new-project-error').hidden=true;$('#new-dialog').showModal();};
 $('#projects').onclick=()=>{$('#projects-error').hidden=true;try{archiveProject(projectStorage,project);}catch(error){projectError(error);}renderProjectLibrary();$('#projects-dialog').showModal();};
-$('#projects-new').onclick=()=>{$('#projects-dialog').close();$('#new-project').click();};
 let previewPlayer;
 $('#preview-app').onclick=()=>{const root=document.createElement('main');root.className='app-player';previewPlayer?.destroy();$('#preview-host').replaceChildren(root);$('#preview-dialog').showModal();previewPlayer=createPlayer(root,project,{snapshot:previewSnapshot,quizRestart:true,onChange:detail=>{if(detail.snapshot?.projectId===project.id)previewSnapshot=detail.snapshot;saveWorkspace();}});saveWorkspace();};
 $('#preview-reset').onclick=()=>previewPlayer?.reset();
