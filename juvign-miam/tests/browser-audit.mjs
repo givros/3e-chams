@@ -82,6 +82,7 @@ try{
   const request=route.request(),method=request.method(),params=new URL(request.url()).searchParams;
   if(method==='OPTIONS')return route.fulfill({status:204,headers:cors});
   if(method==='POST'&&params.get('name')===slug){snapshot=request.postDataJSON();return route.fulfill({status:201,headers:cors,json:{id:slug}});}
+  if(method==='GET'&&params.has('library'))return route.fulfill({headers:cors,json:{apps:[{id:slug,name:snapshot.name}]}});
   if(method==='GET'&&params.get('id')===slug&&snapshot)return route.fulfill({headers:cors,json:snapshot});
   return route.fulfill({status:404,headers:cors,json:{error:'Partage introuvable.'}});
  };
@@ -92,9 +93,15 @@ try{
  if(link!=='https://givros-studio.fr/3e-chams/'+slug||!await page.locator('#share-qr svg').count())throw Error('Short named QR link is missing.');
  if(!JSON.stringify(snapshot).includes('data:image/'))throw Error('Imported image is missing from the published copy.');
  await page.locator('[data-close="share-dialog"]').click();
- const shared=await browser.newPage({viewport:{width:390,height:844}});
- await shared.route(api+'*',mockShare);
- await shared.goto(url+'view.html?s='+slug);
+ const reader=await browser.newContext({viewport:{width:1440,height:900}});
+ await reader.route(api+'*',mockShare);
+ await reader.route(link,route=>route.fulfill({status:302,headers:{location:url+'view.html?s='+slug}}));
+ await reader.addInitScript(()=>{localStorage.setItem('juvign-miam-studio-level','3e');localStorage.setItem('juvign-miam-starter-complete','1');});
+ const library=await reader.newPage();await library.goto(url);await library.locator('#projects').click();
+ const entry=library.locator('#project-list').getByRole('link',{name:'Troisième Chams'});
+ await entry.waitFor();
+ if(await library.locator('#project-list button,#project-list input').count())throw Error('Public library exposes editing controls.');
+ const popup=reader.waitForEvent('page');await entry.click();const shared=await popup;
  await shared.locator('[data-nav-profile]').click();
  if((await shared.locator('.rt-app-header strong').textContent())!=='Profil')throw Error('Shared profile icon is not linked.');
  await shared.locator('[data-nav-back]').click();await shared.locator('.rt-tabs button').nth(1).click();
@@ -103,7 +110,7 @@ try{
  await shared.locator('.rt-tabs button').nth(2).click();
  await shared.getByRole('button',{name:'Confirmer',exact:true}).click();
  await shared.locator('img[src^="data:image/"]').waitFor();
- await shared.close();
+ await reader.close();
  const downloadEvent=page.waitForEvent('download');await page.locator('#export-app').click();await page.locator('#export-name').fill('Troisième Chams');await page.locator('#confirm-export').click();const download=await downloadEvent;
  if(download.suggestedFilename()!==slug+'.html')throw Error('Export filename does not use the chosen name.');
  const output=path.join(root,'output/playwright');await mkdir(output,{recursive:true});const exported=path.join(output,'ci-export.html');await download.saveAs(exported);

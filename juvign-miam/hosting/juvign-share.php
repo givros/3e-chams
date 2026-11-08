@@ -32,6 +32,29 @@ function validSlug($slug): bool {
     return is_string($slug) && preg_match('/^[a-z0-9]+(?:-[a-z0-9]+)*$/D', $slug) && strlen($slug) <= 72;
 }
 
+if ($method === 'GET' && isset($_GET['library'])) {
+    $apps = [];
+    foreach (glob($directory . '/*.json') ?: [] as $file) {
+        $id = basename($file, '.json');
+        if (!validSlug($id)) {
+            continue;
+        }
+        // The editor writes its name before the screens. Read only the small
+        // header so large images never have to be loaded to list the library.
+        $header = @file_get_contents($file, false, null, 0, 8192);
+        $name = str_replace('-', ' ', $id);
+        if ($header !== false && preg_match('~^\s*\{\s*(?:"(?:[^"\\\\]|\\\\.)*"\s*:\s*(?:"(?:[^"\\\\]|\\\\.)*"|[0-9.eE+-]+|true|false|null)\s*,\s*)*?"name"\s*:\s*("(?:[^"\\\\]|\\\\.)*")~s', $header, $match)) {
+            $decoded = json_decode($match[1], true);
+            if (is_string($decoded) && trim($decoded) !== '') {
+                $name = $decoded;
+            }
+        }
+        $apps[] = ['id' => $id, 'name' => $name, 'publishedAt' => @filemtime($file) ?: 0];
+    }
+    usort($apps, static fn($left, $right) => ($right['publishedAt'] <=> $left['publishedAt']) ?: strcmp($left['id'], $right['id']));
+    respond(200, ['apps' => $apps]);
+}
+
 if ($method === 'GET') {
     $opening = array_key_exists('open', $_GET);
     $id = $opening ? $_GET['open'] : ($_GET['id'] ?? '');

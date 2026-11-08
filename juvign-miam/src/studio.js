@@ -12,12 +12,12 @@ import {iconChoices,renderAppIcon} from './studio-icons.js';
 import {catalog,actionTypes,uid,blankProject,component,variable,walk,findNode,duplicateNode,duplicateScreen,operand,action,restaurantTemplate,tasksTemplate,validateProject} from './studio-model.js';
 import {createPlayer,playerCSS} from './studio-player.js';
 import {screenTemplates,addScreenTemplate,mobileAppTemplate} from './screen-templates.js';
-import {publishProject,projectSlug} from './share.js';
+import {publishProject,projectSlug,listSharedProjects} from './share.js';
 import {projectIssues} from './studio-diagnostics.js';
 import {columnLayout,moveNode,containerTargets,decorativeLayout,insertNodeAt} from './studio-layout.js';
 import {navigationSettings,setNavigation,cleanNavigation,moveNavigationItem} from './studio-navigation.js';
 import {componentCategories,libraryEntries,normalizeSearch} from './studio-library.js';
-import {activeProjectKey,listProjects,archiveProject,switchProject,loadActiveProject,importedProjectCopy} from './studio-projects.js';
+import {activeProjectKey,archiveProject,switchProject,loadActiveProject,importedProjectCopy} from './studio-projects.js';
 import {themePresets,appFonts,applyThemePreset,setAppBackground,readableText} from './studio-theme.js';
 import {createProductDetails} from './studio-detail.js';
 import {describeTestState} from './studio-inspection.js';
@@ -76,14 +76,14 @@ function activateProject(next,{undoable=false}={}){
  if(recovery?.blocked){for(const id of ['new-dialog','projects-dialog'])$('#'+id).close();projectError(Error('Télécharge d’abord l’ancienne sauvegarde avec le bouton de récupération.'));return false;}
  try{saveWorkspace();clearTimeout(librarySaveTimer);normalizeQuizImages(next);switchProject(projectStorage,project,next);if(undoable)snapshot();else{history=[];future=[];lastEdit='';lastEditTime=0;}sessionReady=false;project=next;let saved=null;try{saved=loadEditorSession(localStorage,next);}catch{}applyWorkspace(saved);sessionReady=true;save();renderAll();restoreWorkspaceView(saved);return true;}catch(error){projectError(error);return false;}
 }
+let sharedLibrary=null,libraryRequest=0;
 function renderProjectLibrary(){
- let records=listProjects(projectStorage);if(!records.some(r=>r.project.id===project.id))records.unshift({project,updatedAt:new Date().toISOString()});
+ if(!sharedLibrary)return;
  const query=normalizeSearch($('#project-library-search').value);
- records=records.filter(r=>!query||normalizeSearch(r.project.name).includes(query)).sort((a,b)=>(b.project.id===project.id)-(a.project.id===project.id)||b.updatedAt.localeCompare(a.updatedAt));
- $('#project-list').innerHTML=records.length?records.map(({project:p})=>{
-  const name=p.id===project.id?project.name:p.name;
-  return `<a class="project-launch" href="view.html?local=${encodeURIComponent(p.id)}" target="_blank" rel="noopener"><strong>${esc(name)}</strong><span aria-hidden="true">↗</span></a>`;
- }).join(''):'<p class="help">Aucune application trouvée.</p>';
+ const records=sharedLibrary.filter(app=>normalizeSearch(app.name).includes(query));
+ $('#project-list').innerHTML=records.length?records.map(app=>
+  `<a class="project-launch" href="${esc(app.url)}" target="_blank" rel="noopener"><strong>${esc(app.name)}</strong><span aria-hidden="true">↗</span></a>`
+ ).join(''):`<p class="help">${query?'Aucune application trouvée.':'Aucune application partagée pour le moment.'}</p>`;
 }
 function editorSnapshot(){return {project:JSON.stringify(project),screenId,selectedId,selectedVariable,inspectorTab,eventName,libraryTab};}
 function restoreEditor(snapshot){const completedId=project.starter?.complete?project.id:null;project=JSON.parse(snapshot.project);if(project.id===completedId&&project.starter)project.starter.complete=true;screenId=project.screens.some(s=>s.id===snapshot.screenId)?snapshot.screenId:project.home;selectedId=findNode(project,snapshot.selectedId)?snapshot.selectedId:null;selectedVariable=project.variables.some(v=>v.name===snapshot.selectedVariable)?snapshot.selectedVariable:null;inspectorTab=snapshot.inspectorTab;eventName=snapshot.eventName;libraryTab=snapshot.libraryTab;save();renderAll();}
@@ -932,7 +932,22 @@ $('#recover-project').onclick=()=>{if(!recovery)return;download(recovery.raw,'ap
 $('#dismiss-recovery').onclick=()=>{if(!recovery?.blocked)hideRecoveryBanner();};
 if(recovery){$('#recovery-banner').hidden=false;document.body.classList.add('with-recovery');$('#dismiss-recovery').disabled=recovery.blocked;}
 $('#new-project').onclick=()=>{$('[data-template=quiz-tutorial]').hidden=studioLevel!=='4e';$('#new-project-error').hidden=true;$('#new-dialog').showModal();};
-$('#projects').onclick=()=>{$('#projects-error').hidden=true;try{archiveProject(projectStorage,project);}catch(error){projectError(error);}renderProjectLibrary();$('#projects-dialog').showModal();};
+$('#projects').onclick=async()=>{
+ const request=++libraryRequest,error=$('#projects-error');
+ sharedLibrary=null;error.hidden=true;
+ $('#project-list').textContent='Chargement des applications partagées…';
+ $('#projects-dialog').showModal();
+ try{
+  const apps=await listSharedProjects();
+  if(request!==libraryRequest)return;
+  sharedLibrary=apps;renderProjectLibrary();
+ }catch{
+  if(request!==libraryRequest)return;
+  $('#project-list').textContent='';
+  error.textContent='Impossible de charger les applications partagées. Ferme et rouvre la bibliothèque pour réessayer.';
+  error.hidden=false;
+ }
+};
 let previewPlayer;
 $('#preview-app').onclick=()=>{const root=document.createElement('main');root.className='app-player';previewPlayer?.destroy();$('#preview-host').replaceChildren(root);$('#preview-dialog').showModal();previewPlayer=createPlayer(root,project,{snapshot:previewSnapshot,quizRestart:true,onChange:detail=>{if(detail.snapshot?.projectId===project.id)previewSnapshot=detail.snapshot;saveWorkspace();}});saveWorkspace();};
 $('#preview-reset').onclick=()=>previewPlayer?.reset();

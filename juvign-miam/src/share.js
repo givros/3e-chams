@@ -45,6 +45,15 @@ export async function publishProject(project){
  return new URL('/3e-chams/'+id,shareEndpoint).href;
 }
 
+export async function listSharedProjects(){
+ const url=new URL(shareEndpoint);
+ url.searchParams.set('library','1');
+ const {apps}=await shareRequest(url);
+ if(!Array.isArray(apps))throw Error('La bibliothèque est indisponible.');
+ return apps.filter(app=>validShareId(app?.id)&&typeof app.name==='string')
+  .map(({id,name})=>({name,url:new URL('/3e-chams/'+id,shareEndpoint).href}));
+}
+
 export async function loadSharedProject(id){
  if(!validShareId(id))throw Error('Identifiant de partage invalide.');
  const url=new URL(shareEndpoint);url.searchParams.set('id',id);
